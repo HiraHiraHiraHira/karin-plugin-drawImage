@@ -91,6 +91,30 @@ test('generateImages reports a clear timeout error', async () => {
   }
 })
 
+test('generateImages reports non-json api responses clearly', async () => {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end('<html><h1>Bad Gateway</h1></html>')
+  })
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+
+  try {
+    await assert.rejects(
+      generateImages('hello', [], toDrawConfig({
+        baseUrl: `http://127.0.0.1:${address?.port}`,
+        apiKey: 'sk-test',
+        endpoint: '/v1/images/generations',
+        requestTimeoutSeconds: 3,
+      })),
+      /接口返回非 JSON 响应: 502 Bad Gateway.*text\/html.*Bad Gateway/,
+    )
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
 test('DRAW_USAGE_TEXT stays user-facing and compact', () => {
   assert.match(DRAW_USAGE_TEXT, /#draw 提示词/)
   assert.match(DRAW_USAGE_TEXT, /引用图片/)

@@ -207,7 +207,27 @@ interface ImageApiResponse {
   ok: boolean
   status: number
   statusText: string
+  contentType: string
   text: string
+}
+
+function compactResponseText (text: string, maxLength = 120): string {
+  const compacted = text.replace(/\s+/g, ' ').trim()
+  return compacted.length > maxLength ? `${compacted.slice(0, maxLength)}...` : compacted
+}
+
+function parseJsonResponse (response: ImageApiResponse): any {
+  const text = response.text.trim()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    const status = response.status ? `${response.status} ${response.statusText}`.trim() : '未知状态'
+    const contentType = response.contentType || '未知类型'
+    const preview = compactResponseText(text)
+    throw new Error(`接口返回非 JSON 响应: ${status}，Content-Type: ${contentType}${preview ? `，响应片段: ${preview}` : ''}`)
+  }
 }
 
 function postJson (url: string, apiKey: string, payload: Record<string, unknown>, timeoutSeconds: number): Promise<ImageApiResponse> {
@@ -238,6 +258,7 @@ function postJson (url: string, apiKey: string, payload: Record<string, unknown>
           ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
           status: res.statusCode ?? 0,
           statusText: res.statusMessage ?? '',
+          contentType: String(res.headers['content-type'] ?? ''),
           text: Buffer.concat(chunks).toString('utf8'),
         })
       })
@@ -259,8 +280,7 @@ export async function generateImages (prompt: string, images: string[], config: 
     config.requestTimeoutSeconds,
   )
 
-  const text = response.text
-  const json = text.trim() ? JSON.parse(text) : {}
+  const json = parseJsonResponse(response)
 
   if (!response.ok) {
     throw new Error(json?.error?.message || json?.message || `接口请求失败: ${response.status} ${response.statusText}`)
