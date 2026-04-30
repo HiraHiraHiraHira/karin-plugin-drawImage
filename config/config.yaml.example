@@ -1,0 +1,12 @@
+draw:
+  baseUrl: https://example.com
+  apiKey: ''
+  endpoint: /v1/images/generations
+  model: gpt-image-2
+  cooldownSeconds: 180
+  moderation: auto
+  background: auto
+  outputFormat: png
+  quality: high
+  size: 2160x3840
+  n: 1

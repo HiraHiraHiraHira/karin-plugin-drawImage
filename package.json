@@ -1,0 +1,63 @@
+{
+  "name": "karin-plugin-drawImages",
+  "version": "1.0.0",
+  "author": "shijin",
+  "type": "module",
+  "description": "Karin draw plugin powered by a New API image endpoint",
+  "homepage": "https://github.com/Chenyuxin221/karin-plugin-drawImage",
+  "bugs": {
+    "url": "https://github.com/Chenyuxin221/karin-plugin-drawImage/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Chenyuxin221/karin-plugin-drawImage.git"
+  },
+  "scripts": {
+    "app": "node lib/src/app.js",
+    "build": "tsup",
+    "dev": "cross-env EBV_FILE=\"development.env\" node --import tsx src/app.ts",
+    "pub": "npm publish --access public"
+  },
+  "main": "lib/src/index.js",
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/lodash": "^4.17.16",
+    "@types/node": "^20.17.8",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.7.0",
+    "neostandard": "^0.11.9",
+    "node-karin": "^1.15.5",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.3"
+  },
+  "karin": {
+    "main": "src/index.ts",
+    "web": "lib/web.config.js",
+    "ts-web": "web.config.ts",
+    "apps": [
+      "lib/src/apps"
+    ],
+    "ts-apps": [
+      "src/apps"
+    ],
+    "static": [
+      "resources"
+    ],
+    "files": [
+      "config",
+      "data",
+      "resources"
+    ]
+  },
+  "files": [
+    "/lib/**/*.js",
+    "/config/*.yaml.example",
+    "resources",
+    "!lib/app.js"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}
