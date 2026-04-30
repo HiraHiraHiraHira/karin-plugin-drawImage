@@ -6,10 +6,13 @@ import type { DrawConfig } from '../src/utils/draw'
 
 function createConfig (overrides: Partial<DrawConfig> = {}): DrawConfig {
   return {
+    name: '配置一',
+    apiMode: 'images',
     apiKey: 'sk-test',
     baseUrl: 'https://example.com',
     endpoint: '/v1/images/generations',
     model: 'gpt-image-2',
+    imageDetail: 'high',
     cooldownSeconds: 180,
     requestTimeoutSeconds: 600,
     background: 'auto',

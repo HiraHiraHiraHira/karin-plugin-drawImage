@@ -13,100 +13,185 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   const baselineComponents = await webConfig.components?.()
   const baselineKeys = (baselineComponents ?? []).map(item => item.key)
 
-  assert.deepEqual(baselineKeys, [
-    'draw-title-connection',
-    'draw-base-url',
-    'draw-api-key',
-    'draw-endpoint',
-    'draw-divider-generation',
-    'draw-title-generation',
-    'draw-model',
-    'draw-size',
-    'draw-size-custom',
-    'draw-quality',
-    'draw-output-format',
-    'draw-divider-runtime',
-    'draw-title-runtime',
-    'draw-moderation',
-    'draw-background',
-    'draw-n',
-    'draw-cooldown-seconds',
-    'draw-request-timeout-seconds',
-  ])
+  assert.equal(baselineKeys[0], 'draw-title-switch')
+  assert.equal(baselineKeys[1], 'draw-active-profile')
+  assert.ok(baselineKeys.includes('draw-title-global'))
+  assert.ok(baselineKeys.includes('draw-global-api-key'))
+  assert.ok(baselineKeys.includes('draw-profile1-api-mode'))
+  assert.ok(baselineKeys.includes('draw-profile1-api-key'))
+  assert.ok(baselineKeys.includes('draw-profile1-image-detail'))
+  assert.ok(baselineKeys.includes('draw-profile1-size-custom'))
+  assert.ok(baselineKeys.includes('draw-profile2-api-key'))
+  assert.ok(baselineKeys.includes('draw-profile2-image-detail'))
+  assert.ok(baselineKeys.includes('draw-profile2-size-custom'))
+  assert.ok(baselineKeys.includes('draw-profile3-api-key'))
 
   const refreshedComponents = await webConfig.components?.()
   const componentTypes = Object.fromEntries((refreshedComponents ?? []).map((item: any) => [item.key, item.componentType]))
-  assert.equal(componentTypes['draw-moderation'], 'radio-group')
-  assert.equal(componentTypes['draw-background'], 'radio-group')
-  assert.equal(componentTypes['draw-output-format'], 'radio-group')
-  assert.equal(componentTypes['draw-quality'], 'radio-group')
-  assert.equal(componentTypes['draw-size'], 'radio-group')
-  assert.equal(componentTypes['draw-size-custom'], 'input')
-  assert.equal(componentTypes['draw-moderation-custom'], undefined)
-  assert.equal(componentTypes['draw-background-custom'], undefined)
-  assert.equal(componentTypes['draw-output-format-custom'], undefined)
-  assert.equal(componentTypes['draw-quality-custom'], undefined)
+  assert.equal(componentTypes['draw-active-profile'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-api-mode'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-image-detail'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-moderation'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-background'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-output-format'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-quality'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-size'], 'radio-group')
+  assert.equal(componentTypes['draw-profile1-size-custom'], 'input')
+  assert.equal(componentTypes['draw-profile1-moderation-custom'], undefined)
+  assert.equal(componentTypes['draw-profile1-background-custom'], undefined)
+  assert.equal(componentTypes['draw-profile1-output-format-custom'], undefined)
+  assert.equal(componentTypes['draw-profile1-quality-custom'], undefined)
 
   const findComponent = (key: string): LooseComponent | undefined => {
     return refreshedComponents?.find(item => item.key === key) as LooseComponent | undefined
   }
 
-  const moderationField = findComponent('draw-moderation')
-  assert.equal(moderationField?.label, '审核级别')
-  assert.deepEqual(moderationField?.radio?.map((item: any) => item.value), ['auto', 'low'])
+  const activeProfileField = findComponent('draw-active-profile')
+  assert.equal(activeProfileField?.label, '当前配置')
+  assert.deepEqual(activeProfileField?.radio?.map((item: any) => item.value), ['profile1', 'profile2', 'profile3'])
 
-  const sizeField = findComponent('draw-size')
-  const sizeCustomField = findComponent('draw-size-custom')
-  const connectionTitle = findComponent('draw-title-connection')
-  const generationTitle = findComponent('draw-title-generation')
-  const runtimeTitle = findComponent('draw-title-runtime')
+  const apiModeField = findComponent('draw-profile1-api-mode')
+  assert.equal(apiModeField?.label, '接口模式')
+  assert.deepEqual(apiModeField?.radio?.map((item: any) => item.value), ['', 'images', 'chatCompletions', 'custom'])
+  assert.match(String(apiModeField?.description), /留空时继承全局配置/)
+  assert.match(String(apiModeField?.radio?.[0]?.description), /全局配置/)
+  assert.match(String(apiModeField?.radio?.[1]?.description), /\/v1\/images\/generations/)
+
+  const imageDetailField = findComponent('draw-profile1-image-detail')
+  assert.equal(imageDetailField?.label, '图像细节')
+  assert.deepEqual(imageDetailField?.radio?.map((item: any) => item.value), ['', 'auto', 'low', 'high', 'original'])
+  assert.match(String(imageDetailField?.description), /chatCompletions/)
+
+  const moderationField = findComponent('draw-profile1-moderation')
+  assert.equal(moderationField?.label, '审核级别')
+  assert.deepEqual(moderationField?.radio?.map((item: any) => item.value), ['', 'auto', 'low'])
+
+  const sizeField = findComponent('draw-profile1-size')
+  const sizeCustomField = findComponent('draw-profile1-size-custom')
+  const connectionTitle = findComponent('draw-title-profile1-connection')
+  const profileTitle = findComponent('draw-title-profile1')
+  const generationTitle = findComponent('draw-title-profile1-generation')
+  const runtimeTitle = findComponent('draw-title-profile1-runtime')
   assert.equal(sizeField?.label, '尺寸')
-  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['auto', '1024x1024', '1536x1024', '1024x1536', '__custom__'])
+  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['', 'auto', '1024x1024', '1536x1024', '1024x1536', '__custom__'])
   assert.equal(sizeCustomField?.label, '自定义尺寸')
+  assert.match(String(sizeCustomField?.placeholder), /留空继承全局配置/)
+  assert.match(String(findComponent('draw-profile1-base-url')?.placeholder), /留空继承全局配置/)
+  assert.equal(findComponent('draw-profile1-base-url')?.isRequired, false)
+  assert.equal(findComponent('draw-profile1-base-url')?.required, false)
+  assert.notEqual(findComponent('draw-global-base-url')?.isRequired, false)
+  assert.match(String(findComponent('draw-global-base-url')?.placeholder), /https:\/\/example\.com/)
+  assert.match(String(findComponent('draw-global-base-url')?.description), /API 服务地址/)
+  assert.match(String(findComponent('draw-profile1-endpoint')?.description), /custom 模式/)
   assert.equal(connectionTitle?.defaultValue, '基础连接')
+  assert.equal(profileTitle?.defaultValue, '配置一')
   assert.equal(generationTitle?.defaultValue, '生成参数')
   assert.equal(runtimeTitle?.defaultValue, '高级选项')
   assert.equal(connectionTitle?.label, '')
   assert.equal(connectionTitle?.isClearable, false)
   assert.match(String(connectionTitle?.className), /col-span-12/)
-  assert.match(String(connectionTitle?.className), /mb-3/)
+  assert.match(String(connectionTitle?.className), /mb-2/)
   assert.match(String(connectionTitle?.componentClassName), /text-sm/)
+  assert.match(String(connectionTitle?.componentClassName), /max-w-fit/)
+  assert.match(String(profileTitle?.componentClassName), /bg-warning\/20/)
+  assert.match(String(profileTitle?.componentClassName), /text-warning-700/)
+  assert.doesNotMatch(String(connectionTitle?.componentClassName), /bg-warning\/20/)
   assert.match(String(sizeField?.className), /col-span-12/)
   assert.match(String(sizeField?.className), /mb-4/)
   assert.match(String(sizeField?.componentClassName), /gap-x-3/)
   assert.doesNotMatch(String(sizeField?.componentClassName), /border/)
   assert.match(String(sizeCustomField?.className), /md:col-span-6/)
   assert.match(String(sizeCustomField?.className), /mb-4/)
-  assert.match(String(findComponent('draw-base-url')?.className), /md:col-span-4/)
-  assert.match(String(findComponent('draw-model')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-output-format')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-cooldown-seconds')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-request-timeout-seconds')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-profile1-base-url')?.className), /md:col-span-4/)
+  assert.match(String(findComponent('draw-profile1-model')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-profile1-output-format')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-profile1-cooldown-seconds')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-profile1-request-timeout-seconds')?.className), /md:col-span-6/)
 
   const originalRuntime = await fs.readFile(dir.configFile, 'utf8').catch(() => '')
   try {
     const result = await webConfig.save?.({
-      'draw-base-url': 'https://example.com',
-      'draw-api-key': 'sk-panel',
-      'draw-endpoint': '/v1/images/generations',
-      'draw-model': 'gpt-image-2',
-      'draw-cooldown-seconds': '180',
-      'draw-request-timeout-seconds': '600',
-      'draw-moderation': 'low',
-      'draw-background': 'auto',
-      'draw-output-format': 'png',
-      'draw-quality': 'high',
-      'draw-size': '__custom__',
-      'draw-size-custom': '2048x2048',
-      'draw-n': '2',
+      'draw-active-profile': 'profile2',
+      'draw-global-api-mode': 'images',
+      'draw-global-base-url': 'https://global.example.com',
+      'draw-global-api-key': 'sk-global',
+      'draw-global-endpoint': '/v1/images/generations',
+      'draw-global-model': 'global-model',
+      'draw-global-image-detail': 'high',
+      'draw-global-cooldown-seconds': '180',
+      'draw-global-request-timeout-seconds': '600',
+      'draw-global-moderation': 'auto',
+      'draw-global-background': 'auto',
+      'draw-global-output-format': 'png',
+      'draw-global-quality': 'high',
+      'draw-global-size': '1024x1024',
+      'draw-global-size-custom': '',
+      'draw-global-n': '1',
+      'draw-profile1-name': '配置一',
+      'draw-profile1-api-mode': 'images',
+      'draw-profile1-base-url': 'https://one.example.com',
+      'draw-profile1-api-key': 'sk-one',
+      'draw-profile1-endpoint': '/v1/images/generations',
+      'draw-profile1-model': 'gpt-image-2',
+      'draw-profile1-image-detail': 'high',
+      'draw-profile1-cooldown-seconds': '180',
+      'draw-profile1-request-timeout-seconds': '600',
+      'draw-profile1-moderation': 'low',
+      'draw-profile1-background': 'auto',
+      'draw-profile1-output-format': 'png',
+      'draw-profile1-quality': 'high',
+      'draw-profile1-size': '__custom__',
+      'draw-profile1-size-custom': '2048x2048',
+      'draw-profile1-n': '2',
+      'draw-profile2-name': '配置二',
+      'draw-profile2-api-mode': 'chatCompletions',
+      'draw-profile2-base-url': '',
+      'draw-profile2-api-key': '',
+      'draw-profile2-endpoint': '',
+      'draw-profile2-model': 'gpt-5.4',
+      'draw-profile2-image-detail': 'original',
+      'draw-profile2-cooldown-seconds': '180',
+      'draw-profile2-request-timeout-seconds': '600',
+      'draw-profile2-moderation': 'auto',
+      'draw-profile2-background': 'auto',
+      'draw-profile2-output-format': 'png',
+      'draw-profile2-quality': 'high',
+      'draw-profile2-size': '1024x1024',
+      'draw-profile2-size-custom': '',
+      'draw-profile2-n': '1',
+      'draw-profile3-name': '配置三',
+      'draw-profile3-api-mode': 'images',
+      'draw-profile3-base-url': 'https://three.example.com',
+      'draw-profile3-api-key': '',
+      'draw-profile3-endpoint': '/v1/images/generations',
+      'draw-profile3-model': 'gpt-image-2',
+      'draw-profile3-image-detail': 'high',
+      'draw-profile3-cooldown-seconds': '180',
+      'draw-profile3-request-timeout-seconds': '600',
+      'draw-profile3-moderation': 'auto',
+      'draw-profile3-background': 'auto',
+      'draw-profile3-output-format': 'png',
+      'draw-profile3-quality': 'high',
+      'draw-profile3-size': '1024x1024',
+      'draw-profile3-size-custom': '',
+      'draw-profile3-n': '1',
     })
 
     const next = await fs.readFile(dir.configFile, 'utf8')
     assert.equal(result?.success, true)
-    assert.match(next, /apiKey: sk-panel/)
+    assert.match(next, /activeProfile: profile2/)
+    assert.match(next, /global:/)
+    assert.match(next, /apiKey: sk-global/)
+    assert.match(next, /profile1:/)
+    assert.match(next, /apiKey: sk-one/)
     assert.match(next, /moderation: low/)
     assert.match(next, /size: 2048x2048/)
-    assert.match(next, /n: 2/)
+    assert.match(next, /n: ['"]2['"]|n: 2/)
+    assert.match(next, /profile2:/)
+    assert.match(next, /apiKey: ""/)
+    assert.match(next, /apiMode: chatCompletions/)
+    assert.match(next, /endpoint: ""/)
+    assert.match(next, /imageDetail: original/)
   } finally {
     if (originalRuntime) {
       await fs.writeFile(dir.configFile, originalRuntime, 'utf8')

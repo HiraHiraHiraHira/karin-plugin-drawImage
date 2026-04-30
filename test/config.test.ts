@@ -8,6 +8,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
   process.env.KARIN_SKIP_CONFIG_WATCH = '1'
   const {
     getDrawConfig,
+    getDrawSettings,
     saveDrawConfig,
   } = await import('../src/utils/config')
 
@@ -20,6 +21,9 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(config.baseUrl, 'https://example.com')
     assert.equal(config.endpoint, '/v1/images/generations')
     assert.equal(config.model, 'gpt-image-2')
+    assert.equal(config.name, '配置一')
+    assert.equal(config.apiMode, 'images')
+    assert.equal(config.imageDetail, 'high')
     assert.equal(config.cooldownSeconds, 180)
     assert.equal(config.requestTimeoutSeconds, 600)
     assert.equal(config.moderation, 'auto')
@@ -28,6 +32,53 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(config.quality, 'high')
     assert.equal(config.size, '2160x3840')
     assert.equal(config.n, 1)
+  }
+
+  {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'draw-config-profiles-'))
+    const configFile = path.join(tempDir, 'config.yaml')
+
+    await fs.writeFile(configFile, [
+      'draw:',
+      '  activeProfile: profile2',
+      '  global:',
+      '    baseUrl: https://global.example.com',
+      '    apiKey: sk-global',
+      '    model: global-model',
+      '    requestTimeoutSeconds: 1200',
+      '  profiles:',
+      '    profile1:',
+      '      name: 配置一',
+      '      baseUrl: https://one.example.com',
+      '      apiKey: sk-one',
+      '      apiMode: images',
+      '      model: gpt-image-2',
+      '    profile2:',
+      '      name: 配置二',
+      '      baseUrl: ""',
+      '      apiKey: ""',
+      '      apiMode: chatCompletions',
+      '      model: gpt-5.4',
+      '      imageDetail: original',
+      '',
+    ].join('\n'), 'utf8')
+
+    const settings = getDrawSettings(configFile)
+    const active = getDrawConfig(configFile)
+
+    assert.equal(settings.activeProfile, 'profile2')
+    assert.equal(settings.global.apiKey, 'sk-global')
+    assert.equal(settings.profiles.profile1.apiKey, 'sk-one')
+    assert.equal(settings.profiles.profile2.apiKey, 'sk-global')
+    assert.equal(settings.profiles.profile2.baseUrl, 'https://global.example.com')
+    assert.equal(settings.profiles.profile2.requestTimeoutSeconds, 1200)
+    assert.equal(settings.profiles.profile3.name, '配置三')
+    assert.equal(settings.profiles.profile3.apiKey, 'sk-global')
+    assert.equal(settings.profiles.profile3.model, 'global-model')
+    assert.equal(active.name, '配置二')
+    assert.equal(active.apiMode, 'chatCompletions')
+    assert.equal(active.endpoint, '/v1/chat/completions')
+    assert.equal(active.imageDetail, 'original')
   }
 
   {
@@ -81,8 +132,10 @@ test('config helpers use code defaults and save runtime yaml without example syn
     const saved = await saveDrawConfig({
       baseUrl: ' https://example.com/ ',
       apiKey: 'sk-demo',
+      apiMode: 'chatCompletions',
       endpoint: 'v1/images/generations',
       model: 'gpt-image-2',
+      imageDetail: 'low',
       cooldownSeconds: '240',
       requestTimeoutSeconds: '900',
       moderation: 'low',
@@ -96,16 +149,24 @@ test('config helpers use code defaults and save runtime yaml without example syn
     const content = await fs.readFile(configFile, 'utf8')
 
     assert.equal(saved.baseUrl, 'https://example.com')
-    assert.equal(saved.endpoint, '/v1/images/generations')
+    assert.equal(saved.endpoint, '/v1/chat/completions')
+    assert.equal(saved.apiMode, 'chatCompletions')
+    assert.equal(saved.imageDetail, 'low')
     assert.equal(saved.cooldownSeconds, 240)
     assert.equal(saved.requestTimeoutSeconds, 900)
     assert.equal(saved.moderation, 'low')
     assert.equal(saved.n, 3)
-    assert.match(content, /cooldownSeconds: '240'|cooldownSeconds: 240/)
-    assert.match(content, /requestTimeoutSeconds: '900'|requestTimeoutSeconds: 900/)
+    assert.match(content, /cooldownSeconds: ['"]240['"]|cooldownSeconds: 240/)
+    assert.match(content, /requestTimeoutSeconds: ['"]900['"]|requestTimeoutSeconds: 900/)
     assert.match(content, /moderation: low/)
     assert.match(content, /baseUrl: https:\/\/example\.com/)
-    assert.match(content, /n: '3'|n: 3/)
+    assert.match(content, /global:/)
+    assert.match(content, /activeProfile: profile1/)
+    assert.match(content, /profiles:/)
+    assert.match(content, /profile1:/)
+    assert.match(content, /apiMode: chatCompletions/)
+    assert.match(content, /imageDetail: low/)
+    assert.match(content, /n: ['"]3['"]|n: 3/)
     assert.match(content, /legacyRoot: true/)
     assert.doesNotMatch(content, /Keys not in config\.yaml\.example/)
   }
