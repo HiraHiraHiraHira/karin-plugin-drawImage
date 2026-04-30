@@ -130,6 +130,7 @@ const fieldLayouts: Partial<Record<string, string>> = {
   background: HALF_WIDTH_CLASS,
   n: HALF_WIDTH_CLASS,
   cooldownSeconds: HALF_WIDTH_CLASS,
+  requestTimeoutSeconds: HALF_WIDTH_CLASS,
 }
 
 const componentFactories: Record<string, ComponentFactory> = {
@@ -165,6 +166,18 @@ const componentFactories: Record<string, ComponentFactory> = {
       {
         min: 0,
         error: '请输入大于等于 0 的秒数',
+      },
+    ],
+    defaultValue: value === undefined ? '' : String(value),
+  })],
+  requestTimeoutSeconds: (id, value) => [input.number(id, {
+    ...withInputStyle({
+      label: '请求超时（秒）',
+    }, fieldLayouts.requestTimeoutSeconds),
+    rules: [
+      {
+        min: 1,
+        error: '请输入大于等于 1 的秒数',
       },
     ],
     defaultValue: value === undefined ? '' : String(value),
@@ -221,7 +234,7 @@ const componentGroups = [
   {
     key: 'runtime',
     title: '高级选项',
-    fields: ['moderation', 'background', 'n', 'cooldownSeconds'],
+    fields: ['moderation', 'background', 'n', 'cooldownSeconds', 'requestTimeoutSeconds'],
   },
 ] as const
 

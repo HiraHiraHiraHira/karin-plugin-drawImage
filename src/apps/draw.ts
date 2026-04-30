@@ -1,4 +1,4 @@
-import { karin, logger, segment, type Elements, type SendMessage } from 'node-karin'
+import { karin, logger, segment, type Contact, type Elements, type SendMessage } from 'node-karin'
 
 import { dir } from '@/dir'
 import { getDrawConfig } from '@/utils/config'
@@ -14,6 +14,11 @@ import {
 interface DrawEvent {
   msg: string
   image: string[]
+  replyId?: string
+  contact?: Contact
+  bot?: {
+    getMsg: (contact: Contact, messageId: string) => Promise<{ elements: Elements[] }>
+  }
   userId?: string
   reply: (message: SendMessage) => unknown
 }
@@ -44,6 +49,36 @@ function getCooldownKey (e: DrawEvent): string | undefined {
 
 function getRemainingCooldownSeconds (expiresAt: number, now: number): number {
   return Math.max(0, Math.ceil((expiresAt - now) / 1000))
+}
+
+function getImageFilesFromElements (elements: readonly Elements[]): string[] {
+  return elements.flatMap(element => {
+    if (element.type === 'image' && element.file) {
+      return [element.file]
+    }
+
+    return []
+  })
+}
+
+function uniqueImages (images: readonly string[]): string[] {
+  return [...new Set(images.filter(Boolean))]
+}
+
+async function getDrawInputImages (e: DrawEvent): Promise<string[]> {
+  const images = [...e.image]
+  const replyId = e.replyId?.trim()
+
+  if (replyId && e.bot && e.contact) {
+    try {
+      const message = await e.bot.getMsg(e.contact, replyId)
+      images.push(...getImageFilesFromElements(message.elements))
+    } catch (error) {
+      logger.warn('[karin-plugin-drawImages] 获取引用消息图片失败', error)
+    }
+  }
+
+  return uniqueImages(images)
 }
 
 export async function handleDrawMessage (
@@ -78,7 +113,7 @@ export async function handleDrawMessage (
   }
 
   try {
-    const inputImages = await runtime.resolveImages(e.image)
+    const inputImages = await runtime.resolveImages(await getDrawInputImages(e))
     const generatedImages = await runtime.generate(prompt, inputImages, config)
     await e.reply(generatedImages.map(runtime.mapOutput))
   } catch (error) {

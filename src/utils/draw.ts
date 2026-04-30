@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises'
+import http from 'node:http'
+import https from 'node:https'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { URL, fileURLToPath } from 'node:url'
 
 const HTTP_URL_REG = /^https?:\/\//i
 const DATA_URL_REG = /^data:image\//i
@@ -10,7 +12,7 @@ export const DRAW_COMMAND_REG = /^#draw(?:\s+([\s\S]*))?$/i
 export const DRAW_USAGE_TEXT = [
   '用法：',
   '#draw 提示词',
-  '#draw 提示词 + 带图消息（图生图）',
+  '#draw 提示词 + 附带/引用图片（图生图）',
 ].join('\n')
 
 export interface DrawConfigSource {
@@ -19,6 +21,7 @@ export interface DrawConfigSource {
   endpoint?: unknown
   model?: unknown
   cooldownSeconds?: unknown
+  requestTimeoutSeconds?: unknown
   moderation?: unknown
   background?: unknown
   outputFormat?: unknown
@@ -33,6 +36,7 @@ export interface DrawConfig {
   endpoint: string
   model: string
   cooldownSeconds: number
+  requestTimeoutSeconds: number
   moderation?: string
   background?: string
   outputFormat?: string
@@ -47,6 +51,7 @@ export const DRAW_CONFIG_KEYS = [
   'endpoint',
   'model',
   'cooldownSeconds',
+  'requestTimeoutSeconds',
   'moderation',
   'background',
   'outputFormat',
@@ -55,7 +60,7 @@ export const DRAW_CONFIG_KEYS = [
   'n',
 ] as const
 
-export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'apiKey' | 'baseUrl' | 'endpoint' | 'model' | 'cooldownSeconds'>> & {
+export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'apiKey' | 'baseUrl' | 'endpoint' | 'model' | 'cooldownSeconds' | 'requestTimeoutSeconds'>> & {
   moderation: string
   background: string
   outputFormat: string
@@ -68,6 +73,7 @@ export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'apiKey' | 
   endpoint: '/v1/images/generations',
   model: 'gpt-image-2',
   cooldownSeconds: 180,
+  requestTimeoutSeconds: 600,
   moderation: 'auto',
   background: 'auto',
   outputFormat: 'png',
@@ -114,6 +120,7 @@ export function toDrawConfig (source: DrawConfigSource): DrawConfig {
     endpoint: normalizeEndpoint(stringOrDefault(source.endpoint, DEFAULT_DRAW_CONFIG.endpoint)),
     model: stringOrDefault(source.model, DEFAULT_DRAW_CONFIG.model),
     cooldownSeconds: toPositiveInteger(source.cooldownSeconds, DEFAULT_DRAW_CONFIG.cooldownSeconds),
+    requestTimeoutSeconds: toPositiveInteger(source.requestTimeoutSeconds, DEFAULT_DRAW_CONFIG.requestTimeoutSeconds),
     moderation: stringOrDefault(source.moderation, DEFAULT_DRAW_CONFIG.moderation) || undefined,
     background: stringOrDefault(source.background, DEFAULT_DRAW_CONFIG.background) || undefined,
     outputFormat: stringOrDefault(source.outputFormat, DEFAULT_DRAW_CONFIG.outputFormat) || undefined,
@@ -196,18 +203,63 @@ export async function resolveApiImageInputs (images: readonly string[]): Promise
   }))
 }
 
-export async function generateImages (prompt: string, images: string[], config: DrawConfig): Promise<string[]> {
-  const response = await fetch(`${config.baseUrl}${config.endpoint}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify(buildImageRequestPayload({ prompt, images, options: config })),
-  })
+interface ImageApiResponse {
+  ok: boolean
+  status: number
+  statusText: string
+  text: string
+}
 
-  const text = await response.text()
+function postJson (url: string, apiKey: string, payload: Record<string, unknown>, timeoutSeconds: number): Promise<ImageApiResponse> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload)
+    const target = new URL(url)
+    const request = target.protocol === 'http:' ? http.request : https.request
+    const timeoutMs = timeoutSeconds * 1000
+
+    const req = request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: timeoutMs,
+    }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+      res.on('end', () => {
+        resolve({
+          ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
+          status: res.statusCode ?? 0,
+          statusText: res.statusMessage ?? '',
+          text: Buffer.concat(chunks).toString('utf8'),
+        })
+      })
+    })
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`接口请求超时：${timeoutSeconds} 秒内没有返回结果，请稍后重试或调大 requestTimeoutSeconds`))
+    })
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
+export async function generateImages (prompt: string, images: string[], config: DrawConfig): Promise<string[]> {
+  const response = await postJson(
+    `${config.baseUrl}${config.endpoint}`,
+    config.apiKey,
+    buildImageRequestPayload({ prompt, images, options: config }),
+    config.requestTimeoutSeconds,
+  )
+
+  const text = response.text
   const json = text.trim() ? JSON.parse(text) : {}
 
   if (!response.ok) {

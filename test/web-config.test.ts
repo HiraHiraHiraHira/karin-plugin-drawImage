@@ -31,6 +31,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
     'draw-background',
     'draw-n',
     'draw-cooldown-seconds',
+    'draw-request-timeout-seconds',
   ])
 
   const refreshedComponents = await webConfig.components?.()
@@ -80,6 +81,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(findComponent('draw-model')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-output-format')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-cooldown-seconds')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-request-timeout-seconds')?.className), /md:col-span-6/)
 
   const originalRuntime = await fs.readFile(dir.configFile, 'utf8').catch(() => '')
   try {
@@ -89,6 +91,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-endpoint': '/v1/images/generations',
       'draw-model': 'gpt-image-2',
       'draw-cooldown-seconds': '180',
+      'draw-request-timeout-seconds': '600',
       'draw-moderation': 'low',
       'draw-background': 'auto',
       'draw-output-format': 'png',

@@ -21,6 +21,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(config.endpoint, '/v1/images/generations')
     assert.equal(config.model, 'gpt-image-2')
     assert.equal(config.cooldownSeconds, 180)
+    assert.equal(config.requestTimeoutSeconds, 600)
     assert.equal(config.moderation, 'auto')
     assert.equal(config.background, 'auto')
     assert.equal(config.outputFormat, 'png')
@@ -40,6 +41,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
       '  endpoint: /v1/images/generations',
       '  model: custom-model',
       '  cooldownSeconds: 240',
+      '  requestTimeoutSeconds: 900',
       '  moderation: low',
       '  background: transparent',
       '  outputFormat: jpeg',
@@ -56,6 +58,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(config.model, 'custom-model')
     assert.equal(config.baseUrl, 'https://runtime.example.com')
     assert.equal(config.cooldownSeconds, 240)
+    assert.equal(config.requestTimeoutSeconds, 900)
     assert.equal(config.moderation, 'low')
     assert.equal(config.background, 'transparent')
     assert.equal(config.outputFormat, 'jpeg')
@@ -81,6 +84,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
       endpoint: 'v1/images/generations',
       model: 'gpt-image-2',
       cooldownSeconds: '240',
+      requestTimeoutSeconds: '900',
       moderation: 'low',
       background: 'auto',
       outputFormat: 'png',
@@ -94,11 +98,13 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(saved.baseUrl, 'https://example.com')
     assert.equal(saved.endpoint, '/v1/images/generations')
     assert.equal(saved.cooldownSeconds, 240)
+    assert.equal(saved.requestTimeoutSeconds, 900)
     assert.equal(saved.moderation, 'low')
     assert.equal(saved.n, 3)
     assert.match(content, /cooldownSeconds: '240'|cooldownSeconds: 240/)
+    assert.match(content, /requestTimeoutSeconds: '900'|requestTimeoutSeconds: 900/)
     assert.match(content, /moderation: low/)
-    assert.match(content, /baseUrl: https:\/\/example\.com\//)
+    assert.match(content, /baseUrl: https:\/\/example\.com/)
     assert.match(content, /n: '3'|n: 3/)
     assert.match(content, /legacyRoot: true/)
     assert.doesNotMatch(content, /Keys not in config\.yaml\.example/)

@@ -4,6 +4,7 @@ draw:
   endpoint: /v1/images/generations
   model: gpt-image-2
   cooldownSeconds: 180
+  requestTimeoutSeconds: 600
   moderation: auto
   background: auto
   outputFormat: png

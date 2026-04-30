@@ -11,6 +11,7 @@ function createConfig (overrides: Partial<DrawConfig> = {}): DrawConfig {
     endpoint: '/v1/images/generations',
     model: 'gpt-image-2',
     cooldownSeconds: 180,
+    requestTimeoutSeconds: 600,
     background: 'auto',
     outputFormat: 'png',
     quality: 'high',
@@ -85,6 +86,52 @@ test('handleDrawMessage sends generated images for image-to-image mode', async (
     images: ['resolved:https://cdn.example.com/input.png'],
   })
   assert.equal(replies.length, 1)
+  assert.deepEqual(replies[0], ['https://cdn.example.com/output.png'])
+})
+
+test('handleDrawMessage uses images from replied message for image-to-image mode', async () => {
+  const replies: unknown[] = []
+  let generateArgs: { prompt: string, images: string[] } | null = null
+
+  const result = await handleDrawMessage({
+    msg: '#draw 加一顶帽子',
+    image: [],
+    replyId: 'reply-message-id',
+    contact: {
+      scene: 'group',
+      peer: '10000',
+      name: 'test-group',
+    },
+    bot: {
+      getMsg: async (_contact, messageId) => {
+        assert.equal(messageId, 'reply-message-id')
+        return {
+          elements: [
+            {
+              type: 'image',
+              file: 'https://cdn.example.com/replied.png',
+            },
+          ],
+        }
+      },
+    },
+    reply: async (message: unknown) => {
+      replies.push(message)
+    },
+  }, {
+    getConfig: () => createConfig(),
+    resolveImages: async (images) => images.map(item => `resolved:${item}`),
+    generate: async (prompt, images) => {
+      generateArgs = { prompt, images }
+      return ['https://cdn.example.com/output.png']
+    },
+  })
+
+  assert.equal(result, true)
+  assert.deepEqual(generateArgs, {
+    prompt: '加一顶帽子',
+    images: ['resolved:https://cdn.example.com/replied.png'],
+  })
   assert.deepEqual(replies[0], ['https://cdn.example.com/output.png'])
 })
 
