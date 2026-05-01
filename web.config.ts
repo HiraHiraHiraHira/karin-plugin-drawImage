@@ -10,7 +10,7 @@ import {
 import { DISABLED_DRAW_OPTION_VALUE, type DrawConfigSource } from './src/utils/draw'
 
 const radio = components.radio
-const HIDDEN_FIELD_KEYS = new Set(['cooldownSeconds', 'requestTimeoutSeconds', 'n'])
+const PROFILE_HIDDEN_FIELD_KEYS = new Set(['cooldownSeconds', 'requestTimeoutSeconds', 'n'])
 
 function fieldId (key: string, profileId?: string): string {
   const kebabKey = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
@@ -206,6 +206,9 @@ const fieldLayouts: Partial<Record<string, string>> = {
   outputFormat: HALF_WIDTH_CLASS,
   moderation: HALF_WIDTH_CLASS,
   background: HALF_WIDTH_CLASS,
+  n: HALF_WIDTH_CLASS,
+  cooldownSeconds: HALF_WIDTH_CLASS,
+  requestTimeoutSeconds: HALF_WIDTH_CLASS,
 }
 
 const componentFactories: Record<string, ComponentFactory> = {
@@ -295,7 +298,7 @@ const componentGroups = [
   {
     key: 'runtime',
     title: '高级选项',
-    fields: ['moderation', 'background'],
+    fields: ['moderation', 'background', 'n', 'cooldownSeconds', 'requestTimeoutSeconds'],
   },
 ] as const
 
@@ -402,11 +405,11 @@ export default defineConfig({
   info: {
     id: 'karin-plugin-drawImages',
     name: 'karin-plugin-drawImages',
-    description: 'Draw image plugin settings',
+    description: 'AI 绘图插件配置',
   },
   components: () => {
     const settings = getDrawSettings()
-    const fieldKeys = getDrawTemplateFieldKeys().filter((key) => !HIDDEN_FIELD_KEYS.has(key))
+    const fieldKeys = getDrawTemplateFieldKeys()
     const fieldSet = new Set(fieldKeys)
     const profileIds = getDrawProfileIds()
     const activeProfileOptions = profileIds.map((profileId, index) => ({
@@ -446,6 +449,7 @@ export default defineConfig({
       const usedFields = new Set<string>()
       componentGroups.forEach((group, groupIndex) => {
         const children = group.fields
+          .filter((key) => !PROFILE_HIDDEN_FIELD_KEYS.has(key))
           .filter((key) => fieldSet.has(key))
           .flatMap((key) => {
             usedFields.add(key)
@@ -463,6 +467,7 @@ export default defineConfig({
       })
 
       fieldKeys
+        .filter((key) => !PROFILE_HIDDEN_FIELD_KEYS.has(key))
         .filter((key) => !usedFields.has(key))
         .flatMap((key) => createFieldComponent(key, rawProfile, profileId, key !== 'name'))
         .forEach((component) => groupedItems.push(component))
@@ -471,11 +476,14 @@ export default defineConfig({
     return groupedItems
   },
   save: async (config: Record<string, string>) => {
+    const settings = getDrawSettings()
+
     const profiles = Object.fromEntries(getDrawProfileIds().map((profileId) => {
+      const rawProfile = settings.rawProfiles[profileId] as Record<string, unknown>
       const profileConfig = Object.fromEntries(
         getDrawTemplateFieldKeys().map((key) => {
-          if (HIDDEN_FIELD_KEYS.has(key)) {
-            return [key, undefined]
+          if (PROFILE_HIDDEN_FIELD_KEYS.has(key)) {
+            return [key, rawProfile[key]]
           }
 
           const value = config[fieldId(key, profileId)]
@@ -494,10 +502,6 @@ export default defineConfig({
       getDrawTemplateFieldKeys()
         .filter((key) => key !== 'name')
         .map((key) => {
-          if (HIDDEN_FIELD_KEYS.has(key)) {
-            return [key, undefined]
-          }
-
           const value = config[fieldId(key, 'global')]
           if (value === CUSTOM_OPTION_VALUE) {
             return [key, config[customFieldId(key, 'global')]]

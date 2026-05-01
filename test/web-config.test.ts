@@ -26,6 +26,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.ok(baselineKeys.includes('draw-profile2-image-detail'))
   assert.ok(baselineKeys.includes('draw-profile2-size-custom'))
   assert.ok(baselineKeys.includes('draw-profile3-api-key'))
+  assert.ok(baselineKeys.includes('draw-global-cooldown-seconds'))
+  assert.ok(baselineKeys.includes('draw-global-request-timeout-seconds'))
+  assert.ok(baselineKeys.includes('draw-global-n'))
   assert.ok(!baselineKeys.includes('draw-profile1-cooldown-seconds'))
   assert.ok(!baselineKeys.includes('draw-profile1-request-timeout-seconds'))
   assert.ok(!baselineKeys.includes('draw-profile1-n'))
@@ -109,6 +112,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(findComponent('draw-profile1-base-url')?.className), /md:col-span-4/)
   assert.match(String(findComponent('draw-profile1-model')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-profile1-output-format')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-global-cooldown-seconds')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-global-request-timeout-seconds')?.className), /md:col-span-6/)
+  assert.match(String(findComponent('draw-global-n')?.className), /md:col-span-6/)
   assert.equal(findComponent('draw-profile1-cooldown-seconds'), undefined)
   assert.equal(findComponent('draw-profile1-request-timeout-seconds'), undefined)
   assert.equal(findComponent('draw-profile1-n'), undefined)
@@ -123,12 +129,15 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-global-endpoint': '/v1/images/generations',
       'draw-global-model': 'global-model',
       'draw-global-image-detail': 'high',
+      'draw-global-cooldown-seconds': '180',
+      'draw-global-request-timeout-seconds': '600',
       'draw-global-moderation': 'auto',
       'draw-global-background': 'auto',
       'draw-global-output-format': 'png',
       'draw-global-quality': 'high',
       'draw-global-size': '1024x1024',
       'draw-global-size-custom': '',
+      'draw-global-n': '1',
       'draw-profile1-name': '配置一',
       'draw-profile1-api-mode': 'images',
       'draw-profile1-base-url': 'https://one.example.com',
@@ -184,6 +193,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
     assert.match(next, /apiMode: chatCompletions/)
     assert.match(next, /endpoint: ""/)
     assert.match(next, /imageDetail: original/)
+    assert.match(next, /cooldownSeconds: ['"]180['"]|cooldownSeconds: 180/)
+    assert.match(next, /requestTimeoutSeconds: ['"]600['"]|requestTimeoutSeconds: 600/)
+    assert.match(next, /n: ['"]1['"]|n: 1/)
   } finally {
     if (originalRuntime) {
       await fs.writeFile(dir.configFile, originalRuntime, 'utf8')
