@@ -404,7 +404,19 @@ function addDescriptionToComponents (components: ComponentConfig[], key: string,
 export default defineConfig({
   info: {
     id: 'karin-plugin-drawImages',
-    name: 'karin-plugin-drawImages',
+    name: 'ai绘图',
+    author:{
+      name: 'huayunduan',
+      home: 'https://github.com/Chenyuxin221/karin-plugin-drawImages',
+      avatar: 'https://avatars.githubusercontent.com/chenyuxin221',
+    },
+    icon: {
+      /** @see https://fonts.google.com/icons */
+      name: 'settings',
+      size: 24,
+      color: '#B2A8D3'
+    },
+    version: '1.0.0',
     description: 'AI 绘图插件配置',
   },
   components: () => {
