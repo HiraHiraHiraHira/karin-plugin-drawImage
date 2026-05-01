@@ -97,7 +97,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
       '  background: transparent',
       '  outputFormat: jpeg',
       '  quality: medium',
-      '  size: 1024x1024',
+      '  size: __disabled__',
       '  n: 2',
       'legacyRoot: true',
       '',
@@ -114,7 +114,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(config.background, 'transparent')
     assert.equal(config.outputFormat, 'jpeg')
     assert.equal(config.quality, 'medium')
-    assert.equal(config.size, '1024x1024')
+    assert.equal(config.size, undefined)
     assert.equal(config.n, 2)
   }
 
@@ -142,7 +142,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
       background: 'auto',
       outputFormat: 'png',
       quality: 'high',
-      size: '1024x1024',
+      size: '__disabled__',
       n: '3',
     }, configFile)
 
@@ -156,6 +156,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.equal(saved.requestTimeoutSeconds, 900)
     assert.equal(saved.moderation, 'low')
     assert.equal(saved.n, 3)
+    assert.equal(saved.size, undefined)
     assert.match(content, /cooldownSeconds: ['"]240['"]|cooldownSeconds: 240/)
     assert.match(content, /requestTimeoutSeconds: ['"]900['"]|requestTimeoutSeconds: 900/)
     assert.match(content, /moderation: low/)
@@ -167,6 +168,7 @@ test('config helpers use code defaults and save runtime yaml without example syn
     assert.match(content, /apiMode: chatCompletions/)
     assert.match(content, /imageDetail: low/)
     assert.match(content, /n: ['"]3['"]|n: 3/)
+    assert.match(content, /size: __disabled__/)
     assert.match(content, /legacyRoot: true/)
     assert.doesNotMatch(content, /Keys not in config\.yaml\.example/)
   }

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 
 import webConfig from '../web.config'
 import { dir } from '../src/dir'
+import { DISABLED_DRAW_OPTION_VALUE } from '../src/utils/draw'
 
 type LooseComponent = {
   [key: string]: any
@@ -25,6 +26,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.ok(baselineKeys.includes('draw-profile2-image-detail'))
   assert.ok(baselineKeys.includes('draw-profile2-size-custom'))
   assert.ok(baselineKeys.includes('draw-profile3-api-key'))
+  assert.ok(!baselineKeys.includes('draw-profile1-cooldown-seconds'))
+  assert.ok(!baselineKeys.includes('draw-profile1-request-timeout-seconds'))
+  assert.ok(!baselineKeys.includes('draw-profile1-n'))
 
   const refreshedComponents = await webConfig.components?.()
   const componentTypes = Object.fromEntries((refreshedComponents ?? []).map((item: any) => [item.key, item.componentType]))
@@ -64,7 +68,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
 
   const moderationField = findComponent('draw-profile1-moderation')
   assert.equal(moderationField?.label, '审核级别')
-  assert.deepEqual(moderationField?.radio?.map((item: any) => item.value), ['', 'auto', 'low'])
+  assert.deepEqual(moderationField?.radio?.map((item: any) => item.value), ['', DISABLED_DRAW_OPTION_VALUE, 'auto', 'low'])
 
   const sizeField = findComponent('draw-profile1-size')
   const sizeCustomField = findComponent('draw-profile1-size-custom')
@@ -73,7 +77,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   const generationTitle = findComponent('draw-title-profile1-generation')
   const runtimeTitle = findComponent('draw-title-profile1-runtime')
   assert.equal(sizeField?.label, '尺寸')
-  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['', 'auto', '1024x1024', '1536x1024', '1024x1536', '__custom__'])
+  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['', DISABLED_DRAW_OPTION_VALUE, 'auto', '1024x1024', '1536x1024', '1024x1536', '__custom__'])
   assert.equal(sizeCustomField?.label, '自定义尺寸')
   assert.match(String(sizeCustomField?.placeholder), /留空继承全局配置/)
   assert.match(String(findComponent('draw-profile1-base-url')?.placeholder), /留空继承全局配置/)
@@ -93,9 +97,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(connectionTitle?.className), /mb-2/)
   assert.match(String(connectionTitle?.componentClassName), /text-sm/)
   assert.match(String(connectionTitle?.componentClassName), /max-w-fit/)
-  assert.match(String(profileTitle?.componentClassName), /bg-warning\/20/)
-  assert.match(String(profileTitle?.componentClassName), /text-warning-700/)
-  assert.doesNotMatch(String(connectionTitle?.componentClassName), /bg-warning\/20/)
+  assert.match(String(profileTitle?.componentClassName), /text-sky-400/)
+  assert.match(String(profileTitle?.componentClassName), /border-sky-500/)
+  assert.doesNotMatch(String(connectionTitle?.componentClassName), /text-sky-400/)
   assert.match(String(sizeField?.className), /col-span-12/)
   assert.match(String(sizeField?.className), /mb-4/)
   assert.match(String(sizeField?.componentClassName), /gap-x-3/)
@@ -105,8 +109,9 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(findComponent('draw-profile1-base-url')?.className), /md:col-span-4/)
   assert.match(String(findComponent('draw-profile1-model')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-profile1-output-format')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-profile1-cooldown-seconds')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-profile1-request-timeout-seconds')?.className), /md:col-span-6/)
+  assert.equal(findComponent('draw-profile1-cooldown-seconds'), undefined)
+  assert.equal(findComponent('draw-profile1-request-timeout-seconds'), undefined)
+  assert.equal(findComponent('draw-profile1-n'), undefined)
 
   const originalRuntime = await fs.readFile(dir.configFile, 'utf8').catch(() => '')
   try {
@@ -118,15 +123,12 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-global-endpoint': '/v1/images/generations',
       'draw-global-model': 'global-model',
       'draw-global-image-detail': 'high',
-      'draw-global-cooldown-seconds': '180',
-      'draw-global-request-timeout-seconds': '600',
       'draw-global-moderation': 'auto',
       'draw-global-background': 'auto',
       'draw-global-output-format': 'png',
       'draw-global-quality': 'high',
       'draw-global-size': '1024x1024',
       'draw-global-size-custom': '',
-      'draw-global-n': '1',
       'draw-profile1-name': '配置一',
       'draw-profile1-api-mode': 'images',
       'draw-profile1-base-url': 'https://one.example.com',
@@ -134,15 +136,12 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-profile1-endpoint': '/v1/images/generations',
       'draw-profile1-model': 'gpt-image-2',
       'draw-profile1-image-detail': 'high',
-      'draw-profile1-cooldown-seconds': '180',
-      'draw-profile1-request-timeout-seconds': '600',
       'draw-profile1-moderation': 'low',
       'draw-profile1-background': 'auto',
       'draw-profile1-output-format': 'png',
       'draw-profile1-quality': 'high',
-      'draw-profile1-size': '__custom__',
+      'draw-profile1-size': DISABLED_DRAW_OPTION_VALUE,
       'draw-profile1-size-custom': '2048x2048',
-      'draw-profile1-n': '2',
       'draw-profile2-name': '配置二',
       'draw-profile2-api-mode': 'chatCompletions',
       'draw-profile2-base-url': '',
@@ -150,15 +149,12 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-profile2-endpoint': '',
       'draw-profile2-model': 'gpt-5.4',
       'draw-profile2-image-detail': 'original',
-      'draw-profile2-cooldown-seconds': '180',
-      'draw-profile2-request-timeout-seconds': '600',
-      'draw-profile2-moderation': 'auto',
-      'draw-profile2-background': 'auto',
-      'draw-profile2-output-format': 'png',
-      'draw-profile2-quality': 'high',
-      'draw-profile2-size': '1024x1024',
+      'draw-profile2-moderation': DISABLED_DRAW_OPTION_VALUE,
+      'draw-profile2-background': DISABLED_DRAW_OPTION_VALUE,
+      'draw-profile2-output-format': DISABLED_DRAW_OPTION_VALUE,
+      'draw-profile2-quality': DISABLED_DRAW_OPTION_VALUE,
+      'draw-profile2-size': DISABLED_DRAW_OPTION_VALUE,
       'draw-profile2-size-custom': '',
-      'draw-profile2-n': '1',
       'draw-profile3-name': '配置三',
       'draw-profile3-api-mode': 'images',
       'draw-profile3-base-url': 'https://three.example.com',
@@ -166,15 +162,12 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-profile3-endpoint': '/v1/images/generations',
       'draw-profile3-model': 'gpt-image-2',
       'draw-profile3-image-detail': 'high',
-      'draw-profile3-cooldown-seconds': '180',
-      'draw-profile3-request-timeout-seconds': '600',
       'draw-profile3-moderation': 'auto',
       'draw-profile3-background': 'auto',
       'draw-profile3-output-format': 'png',
       'draw-profile3-quality': 'high',
       'draw-profile3-size': '1024x1024',
       'draw-profile3-size-custom': '',
-      'draw-profile3-n': '1',
     })
 
     const next = await fs.readFile(dir.configFile, 'utf8')
@@ -185,8 +178,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
     assert.match(next, /profile1:/)
     assert.match(next, /apiKey: sk-one/)
     assert.match(next, /moderation: low/)
-    assert.match(next, /size: 2048x2048/)
-    assert.match(next, /n: ['"]2['"]|n: 2/)
+    assert.match(next, /size: __disabled__/)
     assert.match(next, /profile2:/)
     assert.match(next, /apiKey: ""/)
     assert.match(next, /apiMode: chatCompletions/)

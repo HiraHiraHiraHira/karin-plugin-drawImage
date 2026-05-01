@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 
 import {
   DRAW_COMMAND_REG,
+  DISABLED_DRAW_OPTION_VALUE,
   DRAW_USAGE_TEXT,
   buildImageRequestPayload,
   extractOutputImages,
@@ -48,6 +49,29 @@ test('buildImageRequestPayload omits image and n when unnecessary', () => {
     output_format: 'png',
     quality: 'high',
     size: '2160x3840',
+  })
+})
+
+test('buildImageRequestPayload omits disabled optional image params', () => {
+  const payload = buildImageRequestPayload({
+    prompt: 'hello',
+    images: [],
+    options: toDrawConfig({
+      baseUrl: 'https://example.com',
+      apiKey: 'sk-test',
+      endpoint: '/v1/images/generations',
+      model: 'gpt-image-2',
+      moderation: DISABLED_DRAW_OPTION_VALUE,
+      background: DISABLED_DRAW_OPTION_VALUE,
+      outputFormat: DISABLED_DRAW_OPTION_VALUE,
+      quality: DISABLED_DRAW_OPTION_VALUE,
+      size: DISABLED_DRAW_OPTION_VALUE,
+    }),
+  })
+
+  assert.deepEqual(payload, {
+    model: 'gpt-image-2',
+    prompt: 'hello',
   })
 })
 

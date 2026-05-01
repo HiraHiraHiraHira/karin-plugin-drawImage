@@ -7,9 +7,10 @@ import {
   saveDrawSettings,
   type DrawProfileId,
 } from './src/utils/config'
-import type { DrawConfigSource } from './src/utils/draw'
+import { DISABLED_DRAW_OPTION_VALUE, type DrawConfigSource } from './src/utils/draw'
 
 const radio = components.radio
+const HIDDEN_FIELD_KEYS = new Set(['cooldownSeconds', 'requestTimeoutSeconds', 'n'])
 
 function fieldId (key: string, profileId?: string): string {
   const kebabKey = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
@@ -33,6 +34,7 @@ const RADIO_ITEMS_CLASS = 'gap-x-3 gap-y-2 text-sm'
 
 const CUSTOM_OPTION_VALUE = '__custom__'
 const INHERIT_OPTION: RadioOption = { value: '', label: '继承全局', description: '留空时使用全局配置中的值' }
+const DISABLED_OPTION: RadioOption = { value: DISABLED_DRAW_OPTION_VALUE, label: '关闭', description: '不发送这个参数' }
 
 const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
   apiMode: [
@@ -47,26 +49,31 @@ const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
     { value: 'original', label: '原始', description: '保留原始细节，适合密集或空间敏感图片' },
   ],
   moderation: [
+    DISABLED_OPTION,
     { value: 'auto', label: '自动' },
     { value: 'low', label: '低' },
   ],
   background: [
+    DISABLED_OPTION,
     { value: 'auto', label: '自动' },
     { value: 'transparent', label: '透明' },
     { value: 'opaque', label: '不透明' },
   ],
   outputFormat: [
+    DISABLED_OPTION,
     { value: 'png', label: 'PNG' },
     { value: 'jpeg', label: 'JPEG' },
     { value: 'webp', label: 'WebP' },
   ],
   quality: [
+    DISABLED_OPTION,
     { value: 'auto', label: '自动' },
     { value: 'high', label: '高' },
     { value: 'medium', label: '中' },
     { value: 'low', label: '低' },
   ],
   size: [
+    DISABLED_OPTION,
     { value: 'auto', label: '自动' },
     { value: '1024x1024', label: '1024x1024' },
     { value: '1536x1024', label: '1536x1024' },
@@ -138,7 +145,6 @@ const fieldDescriptions: Partial<Record<string, string>> = {
   outputFormat: '输出图片格式，具体可用值取决于上游模型',
   moderation: '审核级别，具体可用值取决于上游接口',
   background: '背景模式，透明背景通常需要模型支持',
-  n: '一次生成的图片数量，过大可能导致发送失败或上游不支持',
   cooldownSeconds: '每个用户的 #draw 冷却时间，失败请求也会进入冷却',
   requestTimeoutSeconds: '等待上游返回的最长时间，图片生成较慢时可调大',
 }
@@ -168,8 +174,8 @@ function getPlaceholder (key: string, allowInherit = false): string | undefined 
 
 function createSectionTitle (key: string, title: string, tone: 'default' | 'accent' = 'default') {
   const toneClass = tone === 'accent'
-    ? 'bg-warning/20 text-warning-700 dark:text-warning-300 border border-warning/35'
-    : 'bg-white/[0.07] text-white/95'
+    ? 'bg-transparent text-sky-400 dark:text-sky-300 border-l-2 border-sky-500/45 pl-2 rounded-none'
+    : 'bg-white/[0.06] text-white/90'
 
   return input.string(key, {
     label: '',
@@ -183,7 +189,7 @@ function createSectionTitle (key: string, title: string, tone: 'default' | 'acce
     size: 'sm',
     labelPlacement: 'inside',
     className: `${FULL_WIDTH_CLASS} mt-2 mb-2`,
-    componentClassName: `pointer-events-none inline-flex w-auto max-w-fit h-7 min-h-7 rounded-md px-3 text-sm font-semibold tracking-normal ${toneClass}`,
+    componentClassName: `pointer-events-none inline-flex w-auto max-w-fit h-7 min-h-7 rounded-md px-3 text-sm font-semibold tracking-normal shadow-none ${toneClass}`,
   })
 }
 
@@ -200,9 +206,6 @@ const fieldLayouts: Partial<Record<string, string>> = {
   outputFormat: HALF_WIDTH_CLASS,
   moderation: HALF_WIDTH_CLASS,
   background: HALF_WIDTH_CLASS,
-  n: HALF_WIDTH_CLASS,
-  cooldownSeconds: HALF_WIDTH_CLASS,
-  requestTimeoutSeconds: HALF_WIDTH_CLASS,
 }
 
 const componentFactories: Record<string, ComponentFactory> = {
@@ -247,32 +250,6 @@ const componentFactories: Record<string, ComponentFactory> = {
     }, fieldLayouts.model),
     defaultValue: String(value ?? ''),
   })],
-  cooldownSeconds: (id, value) => [input.number(id, {
-    ...withInputStyle({
-      label: '冷却时间（秒）',
-      description: getDescription('cooldownSeconds'),
-    }, fieldLayouts.cooldownSeconds),
-    rules: [
-      {
-        min: 0,
-        error: '请输入大于等于 0 的秒数',
-      },
-    ],
-    defaultValue: value === undefined ? '' : String(value),
-  })],
-  requestTimeoutSeconds: (id, value) => [input.number(id, {
-    ...withInputStyle({
-      label: '请求超时（秒）',
-      description: getDescription('requestTimeoutSeconds'),
-    }, fieldLayouts.requestTimeoutSeconds),
-    rules: [
-      {
-        min: 1,
-        error: '请输入大于等于 1 的秒数',
-      },
-    ],
-    defaultValue: value === undefined ? '' : String(value),
-  })],
   moderation: (id, value) => [
     createRadioGroup(id, '审核级别', radioFieldOptions.moderation ?? [], value, false, fieldLayouts.moderation),
   ],
@@ -297,23 +274,11 @@ const componentFactories: Record<string, ComponentFactory> = {
         placeholder: '例如 1024x1024；选中“自定义”时使用',
       }, HALF_WIDTH_CLASS),
       defaultValue: radioFieldOptions.size?.some((option) => option.value === String(value ?? '').trim())
+        || String(value ?? '').trim() === DISABLED_DRAW_OPTION_VALUE
         ? ''
         : String(value ?? ''),
     }),
   ],
-  n: (id, value) => [input.number(id, {
-    ...withInputStyle({
-      label: '生成数量',
-      description: getDescription('n'),
-    }, fieldLayouts.n),
-    rules: [
-      {
-        min: 1,
-        error: '请输入大于等于 1 的数量',
-      },
-    ],
-    defaultValue: value === undefined ? '' : String(value),
-  })],
 }
 
 const componentGroups = [
@@ -330,7 +295,7 @@ const componentGroups = [
   {
     key: 'runtime',
     title: '高级选项',
-    fields: ['moderation', 'background', 'n', 'cooldownSeconds', 'requestTimeoutSeconds'],
+    fields: ['moderation', 'background'],
   },
 ] as const
 
@@ -353,6 +318,7 @@ function createFieldComponent (key: string, config: Record<string, unknown>, pro
               placeholder: getPlaceholder('size', allowInherit),
             }, HALF_WIDTH_CLASS),
             defaultValue: radioFieldOptions.size?.some((option) => option.value === String(value ?? '').trim())
+              || String(value ?? '').trim() === DISABLED_DRAW_OPTION_VALUE
               ? ''
               : String(value ?? ''),
           })]
@@ -440,7 +406,7 @@ export default defineConfig({
   },
   components: () => {
     const settings = getDrawSettings()
-    const fieldKeys = getDrawTemplateFieldKeys()
+    const fieldKeys = getDrawTemplateFieldKeys().filter((key) => !HIDDEN_FIELD_KEYS.has(key))
     const fieldSet = new Set(fieldKeys)
     const profileIds = getDrawProfileIds()
     const activeProfileOptions = profileIds.map((profileId, index) => ({
@@ -508,6 +474,10 @@ export default defineConfig({
     const profiles = Object.fromEntries(getDrawProfileIds().map((profileId) => {
       const profileConfig = Object.fromEntries(
         getDrawTemplateFieldKeys().map((key) => {
+          if (HIDDEN_FIELD_KEYS.has(key)) {
+            return [key, undefined]
+          }
+
           const value = config[fieldId(key, profileId)]
           if (value === CUSTOM_OPTION_VALUE) {
             return [key, config[customFieldId(key, profileId)]]
@@ -524,6 +494,10 @@ export default defineConfig({
       getDrawTemplateFieldKeys()
         .filter((key) => key !== 'name')
         .map((key) => {
+          if (HIDDEN_FIELD_KEYS.has(key)) {
+            return [key, undefined]
+          }
+
           const value = config[fieldId(key, 'global')]
           if (value === CUSTOM_OPTION_VALUE) {
             return [key, config[customFieldId(key, 'global')]]

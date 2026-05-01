@@ -1,17 +1,27 @@
 {
-  "name": "karin-plugin-drawImages",
+  "name": "karin-plugin-drawimages",
   "version": "1.0.0",
-  "author": "shijin",
+  "author": "huayunduan",
   "type": "module",
-  "description": "Karin draw plugin powered by a New API image endpoint",
+  "description": "Karin AI drawing plugin for #draw, supporting text-to-image and image-to-image with Images API and Chat Completions backends",
   "homepage": "https://github.com/Chenyuxin221/karin-plugin-drawImage",
   "bugs": {
     "url": "https://github.com/Chenyuxin221/karin-plugin-drawImage/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/Chenyuxin221/karin-plugin-drawImage.git"
+    "url": "https://github.com/Chenyuxin221/karin-plugin-drawImage.git"
   },
+  "keywords": [
+    "karin",
+    "karin-plugin",
+    "draw",
+    "image-generation",
+    "text-to-image",
+    "image-to-image",
+    "openai-images",
+    "chat-completions"
+  ],
   "scripts": {
     "app": "node lib/src/app.js",
     "build": "tsup",

@@ -15,6 +15,7 @@ function createConfig (overrides: Partial<DrawConfig> = {}): DrawConfig {
     imageDetail: 'high',
     cooldownSeconds: 180,
     requestTimeoutSeconds: 600,
+    moderation: 'auto',
     background: 'auto',
     outputFormat: 'png',
     quality: 'high',

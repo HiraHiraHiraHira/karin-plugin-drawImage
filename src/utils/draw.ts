@@ -18,6 +18,7 @@ export type DrawApiMode = typeof DRAW_API_MODES[number]
 
 export const IMAGE_DETAIL_OPTIONS = ['auto', 'low', 'high', 'original'] as const
 export type ImageDetail = typeof IMAGE_DETAIL_OPTIONS[number]
+export const DISABLED_DRAW_OPTION_VALUE = '__disabled__'
 
 export const DRAW_COMMAND_REG = /^#draw(?:\s+([\s\S]*))?$/i
 export const DRAW_USAGE_TEXT = [
@@ -138,6 +139,15 @@ function enumOrDefault<T extends readonly string[]> (value: unknown, options: T,
   return options.includes(trimmed) ? trimmed : fallback
 }
 
+function optionalStringOrDefault (value: unknown, fallback: string): string | undefined {
+  if (value === DISABLED_DRAW_OPTION_VALUE) {
+    return undefined
+  }
+
+  const normalized = stringOrDefault(value, fallback)
+  return normalized || undefined
+}
+
 function getDefaultEndpoint (apiMode: DrawApiMode): string {
   return apiMode === 'chatCompletions' ? CHAT_COMPLETIONS_ENDPOINT : IMAGE_GENERATIONS_ENDPOINT
 }
@@ -167,11 +177,11 @@ export function toDrawConfig (source: DrawConfigSource): DrawConfig {
     imageDetail: enumOrDefault(source.imageDetail, IMAGE_DETAIL_OPTIONS, DEFAULT_DRAW_CONFIG.imageDetail),
     cooldownSeconds: toPositiveInteger(source.cooldownSeconds, DEFAULT_DRAW_CONFIG.cooldownSeconds),
     requestTimeoutSeconds: toPositiveInteger(source.requestTimeoutSeconds, DEFAULT_DRAW_CONFIG.requestTimeoutSeconds),
-    moderation: stringOrDefault(source.moderation, DEFAULT_DRAW_CONFIG.moderation) || undefined,
-    background: stringOrDefault(source.background, DEFAULT_DRAW_CONFIG.background) || undefined,
-    outputFormat: stringOrDefault(source.outputFormat, DEFAULT_DRAW_CONFIG.outputFormat) || undefined,
-    quality: stringOrDefault(source.quality, DEFAULT_DRAW_CONFIG.quality) || undefined,
-    size: stringOrDefault(source.size, DEFAULT_DRAW_CONFIG.size) || undefined,
+    moderation: optionalStringOrDefault(source.moderation, DEFAULT_DRAW_CONFIG.moderation),
+    background: optionalStringOrDefault(source.background, DEFAULT_DRAW_CONFIG.background),
+    outputFormat: optionalStringOrDefault(source.outputFormat, DEFAULT_DRAW_CONFIG.outputFormat),
+    quality: optionalStringOrDefault(source.quality, DEFAULT_DRAW_CONFIG.quality),
+    size: optionalStringOrDefault(source.size, DEFAULT_DRAW_CONFIG.size),
     n: source.n === undefined || source.n === null || source.n === ''
       ? DEFAULT_DRAW_CONFIG.n
       : toPositiveInteger(source.n, DEFAULT_DRAW_CONFIG.n),
