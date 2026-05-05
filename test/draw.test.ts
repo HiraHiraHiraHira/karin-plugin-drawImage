@@ -254,6 +254,34 @@ test('generateImages aggregates streaming chat completion responses', async () =
   }
 })
 
+test('generateImages reports streaming api error events even when http succeeds', async () => {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    res.write('data: {"error":{"message":"something was wrong","type":"server_error","code":"no_available_account"}}\n\n')
+    res.write('data: {"choices":[]}\n\n')
+    res.write('data: [DONE]\n\n')
+    res.end()
+  })
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+
+  try {
+    await assert.rejects(
+      generateImages('雨西湖图 需要能看到荷花和雷峰塔', [], toDrawConfig({
+        apiMode: 'chatCompletions',
+        baseUrl: `http://127.0.0.1:${address?.port}`,
+        apiKey: 'sk-test',
+        model: 'openai-image-2-2k',
+        requestTimeoutSeconds: 3,
+      })),
+      /something was wrong/,
+    )
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
 test('DRAW_USAGE_TEXT stays user-facing and compact', () => {
   assert.match(DRAW_USAGE_TEXT, /#draw 提示词/)
   assert.match(DRAW_USAGE_TEXT, /引用图片/)

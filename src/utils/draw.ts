@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
-import http from 'node:http'
-import https from 'node:https'
 import path from 'node:path'
-import { URL, fileURLToPath } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { logger } from 'node-karin'
+
+import { post, postWithStream, type ApiResponse } from './http'
 
 const HTTP_URL_REG = /^https?:\/\//i
 const DATA_URL_REG = /^data:image\//i
@@ -160,10 +161,22 @@ function endpointOrDefault (source: DrawConfigSource, apiMode: DrawApiMode): str
   return stringOrDefault(source.endpoint, DEFAULT_DRAW_CONFIG.endpoint)
 }
 
+/**
+ * 提取 #draw 后面的提示词。
+ *
+ * @param message - 原始消息文本。
+ * @returns 提取出的提示词；没有提示词时返回空字符串。
+ */
 export function parseDrawPrompt (message: string): string {
   return message.match(DRAW_COMMAND_REG)?.[1]?.trim() ?? ''
 }
 
+/**
+ * 将 yaml/web 面板里的松散配置转换成运行时可直接使用的配置。
+ *
+ * @param source - 来自 yaml 或 Web 配置面板的原始配置。
+ * @returns 归一化后的绘图配置。
+ */
 export function toDrawConfig (source: DrawConfigSource): DrawConfig {
   const apiMode = enumOrDefault(source.apiMode, DRAW_API_MODES, DEFAULT_DRAW_CONFIG.apiMode)
 
@@ -188,6 +201,18 @@ export function toDrawConfig (source: DrawConfigSource): DrawConfig {
   }
 }
 
+/**
+ * 根据接口模式构建上游请求体。
+ *
+ * images/custom 模式使用 Images API 风格，chatCompletions 模式使用
+ * messages[].content 的图像输入格式。
+ *
+ * @param input - 请求体构建参数。
+ * @param input.prompt - 绘图提示词。
+ * @param input.images - 图生图输入图片列表。
+ * @param input.options - 当前绘图配置。
+ * @returns 上游接口请求体。
+ */
 export function buildImageRequestPayload ({
   prompt,
   images = [],
@@ -224,6 +249,7 @@ export function buildImageRequestPayload ({
     prompt,
   }
 
+  // 可选参数选择“关闭”时会在 toDrawConfig 中变成 undefined，这里自然跳过。
   if (images.length > 0) payload.image = images
   if (options.moderation) payload.moderation = options.moderation
   if (options.background) payload.background = options.background
@@ -235,6 +261,15 @@ export function buildImageRequestPayload ({
   return payload
 }
 
+/**
+ * 从上游响应里提取可发送的图片结果。
+ *
+ * 兼容 Images API 的 data[].b64_json/data[].url，也兼容 Chat Completions
+ * 文本里返回的 Markdown 图片、直链、data URL 和 base64://。
+ *
+ * @param json - 上游响应 JSON。
+ * @returns 可直接发送给 Karin 的图片结果列表。
+ */
 export function extractOutputImages (json: any): string[] {
   const dataImages = Array.isArray(json?.data)
     ? json.data.flatMap((item: any) => {
@@ -257,6 +292,12 @@ export function extractOutputImages (json: any): string[] {
   return uniqueStrings([...dataImages, ...chatImages])
 }
 
+/**
+ * 从文本里提取图片链接，同时忽略普通 Markdown 下载链接。
+ *
+ * @param content - Chat Completions 返回的文本内容。
+ * @returns 文本中的图片 URL 或 base64 图片列表。
+ */
 function extractImagesFromText (content: unknown): string[] {
   if (typeof content !== 'string') return []
 
@@ -286,6 +327,12 @@ function getMimeType (filePath: string): string {
   }
 }
 
+/**
+ * 将 Karin/QQ 得到的图片输入统一转换成上游可接收的 URL 或 data URL。
+ *
+ * @param images - Karin 事件里提取到的图片地址、file URL 或 base64:// 内容。
+ * @returns 上游 API 可读取的图片 URL 或 data URL 列表。
+ */
 export async function resolveApiImageInputs (images: readonly string[]): Promise<string[]> {
   return Promise.all(images.map(async (input) => {
     if (input.startsWith(BASE64_PREFIX)) {
@@ -302,20 +349,27 @@ export async function resolveApiImageInputs (images: readonly string[]): Promise
   }))
 }
 
-interface ImageApiResponse {
-  ok: boolean
-  status: number
-  statusText: string
-  contentType: string
-  text: string
-}
-
 function compactResponseText (text: string, maxLength = 120): string {
   const compacted = text.replace(/\s+/g, ' ').trim()
   return compacted.length > maxLength ? `${compacted.slice(0, maxLength)}...` : compacted
 }
 
-function parseJsonResponse (response: ImageApiResponse): any {
+function summarizeImageApiResponse (response: ApiResponse): string {
+  return [
+    `status=${response.status} ${response.statusText}`.trim(),
+    `contentType=${response.contentType || '未知类型'}`,
+    `body=${compactResponseText(response.text, 300) || '空响应'}`,
+  ].join('，')
+}
+
+/**
+ * 解析 JSON 响应，并在拿到 HTML/网关错误页时给出更明确的错误片段。
+ *
+ * @param response - 网络层返回的归一化响应。
+ * @returns 解析后的 JSON 对象；空响应返回空对象。
+ * @throws 当响应不是合法 JSON 时抛出包含状态码、Content-Type 和响应片段的错误。
+ */
+function parseJsonResponse (response: ApiResponse): any {
   const text = response.text.trim()
   if (!text) return {}
 
@@ -333,151 +387,86 @@ function usesChatCompletionsApi (config: DrawConfig): boolean {
   return config.apiMode === 'chatCompletions' || config.endpoint === CHAT_COMPLETIONS_ENDPOINT
 }
 
-function createRequestOptions (url: string, apiKey: string, body: string, accept: string, timeoutSeconds: number) {
-  const target = new URL(url)
-
-  return {
-    target,
-    request: target.protocol === 'http:' ? http.request : https.request,
-    options: {
-      protocol: target.protocol,
-      hostname: target.hostname,
-      port: target.port,
-      path: `${target.pathname}${target.search}`,
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: accept,
-        'Content-Length': Buffer.byteLength(body),
-      },
-      timeout: timeoutSeconds * 1000,
-    },
+/**
+ * 递归查找上游返回的 error.message。
+ *
+ * 一些兼容服务会在 HTTP 200 的 SSE 事件里返回 error，
+ * 这里提前识别，避免误报成“成功但没拿到图片”。
+ *
+ * @param value - 上游响应 JSON 或其中的任意嵌套值。
+ * @returns 找到的上游错误消息；没有错误时返回 undefined。
+ */
+function findApiErrorMessage (value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return findApiErrorMessageInText(value)
   }
+
+  if (!value || typeof value !== 'object') return undefined
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = findApiErrorMessage(item)
+      if (message) return message
+    }
+
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  const error = record.error
+  if (error && typeof error === 'object') {
+    const message = (error as Record<string, unknown>).message
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim()
+    }
+  }
+
+  for (const key of ['choices', 'message', 'content']) {
+    const message = findApiErrorMessage(record[key])
+    if (message) return message
+  }
+
+  return undefined
 }
 
-function postJson (url: string, apiKey: string, payload: Record<string, unknown>, timeoutSeconds: number): Promise<ImageApiResponse> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload)
-    const { request, options } = createRequestOptions(url, apiKey, body, 'application/json', timeoutSeconds)
+/**
+ * 从 SSE 原始文本中提取内嵌的 JSON error.message。
+ *
+ * @param text - SSE 原始文本或包含 SSE 原文的响应字符串。
+ * @returns 找到的上游错误消息；没有错误时返回 undefined。
+ */
+function findApiErrorMessageInText (text: string): string | undefined {
+  const matches = text.matchAll(/\{[^\n]*"error"\s*:\s*\{[^\n]*\}[^\n]*\}/g)
 
-    const req = request(options, (res) => {
-      const chunks: Buffer[] = []
-      res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-      res.on('end', () => {
-        resolve({
-          ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-          status: res.statusCode ?? 0,
-          statusText: res.statusMessage ?? '',
-          contentType: String(res.headers['content-type'] ?? ''),
-          text: Buffer.concat(chunks).toString('utf8'),
-        })
-      })
-    })
-
-    req.on('timeout', () => {
-      req.destroy(new Error(`接口请求超时：${timeoutSeconds} 秒内没有返回结果，请稍后重试或调大 requestTimeoutSeconds`))
-    })
-    req.on('error', reject)
-    req.end(body)
-  })
-}
-
-function parseEventStreamText (text: string): string {
-  const textParts: string[] = []
-
-  for (const rawEvent of text.split('\n\n')) {
-    if (!rawEvent.trim()) continue
-
-    const dataLines = rawEvent
-      .split('\n')
-      .filter(line => line.startsWith('data:'))
-      .map(line => line.slice(5).trim())
-
-    if (dataLines.length === 0) continue
-    const data = dataLines.join('\n')
-    if (data === '[DONE]') continue
-
+  for (const match of matches) {
     try {
-      const json = JSON.parse(data)
-      const choices = Array.isArray(json?.choices) ? json.choices : []
-
-      for (const choice of choices) {
-        if (typeof choice?.delta?.content === 'string' && choice.delta.content) {
-          textParts.push(choice.delta.content)
-          continue
-        }
-
-        if (typeof choice?.message?.content === 'string' && choice.message.content) {
-          textParts.push(choice.message.content)
-        }
-      }
+      const message = findApiErrorMessage(JSON.parse(match[0]))
+      if (message) return message
     } catch {}
   }
 
-  return textParts.join('').trim()
+  return undefined
 }
 
-function postEventStream (url: string, apiKey: string, payload: Record<string, unknown>, timeoutSeconds: number): Promise<ImageApiResponse> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload)
-    const { request, options } = createRequestOptions(url, apiKey, body, 'text/event-stream', timeoutSeconds)
-
-    const req = request(options, (res) => {
-      const chunks: Buffer[] = []
-      res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8')
-        const contentType = String(res.headers['content-type'] ?? '')
-
-        if (!contentType.includes('text/event-stream')) {
-          resolve({
-            ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-            status: res.statusCode ?? 0,
-            statusText: res.statusMessage ?? '',
-            contentType,
-            text,
-          })
-          return
-        }
-
-        const content = parseEventStreamText(text)
-        resolve({
-          ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-          status: res.statusCode ?? 0,
-          statusText: res.statusMessage ?? '',
-          contentType,
-          text: JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content,
-                },
-              },
-            ],
-          }),
-        })
-      })
-    })
-
-    req.on('timeout', () => {
-      req.destroy(new Error(`接口请求超时：${timeoutSeconds} 秒内没有返回结果，请稍后重试或调大 requestTimeoutSeconds`))
-    })
-    req.on('error', reject)
-    req.end(body)
-  })
-}
-
+/**
+ * 执行绘图请求并返回图片结果。
+ *
+ * @param prompt - 绘图提示词。
+ * @param images - 已解析成上游可读取格式的输入图片列表。
+ * @param config - 当前生效的绘图配置。
+ * @returns 上游返回的图片结果列表。
+ * @throws 当接口返回错误、非 JSON、超时或没有图片结果时抛出错误。
+ */
 export async function generateImages (prompt: string, images: string[], config: DrawConfig): Promise<string[]> {
   const payload = buildImageRequestPayload({ prompt, images, options: config })
   const response = usesChatCompletionsApi(config)
-    ? await postEventStream(
+    ? await postWithStream(
       `${config.baseUrl}${config.endpoint}`,
       config.apiKey,
       payload,
       config.requestTimeoutSeconds,
     )
-    : await postJson(
+    : await post(
       `${config.baseUrl}${config.endpoint}`,
       config.apiKey,
       payload,
@@ -485,6 +474,11 @@ export async function generateImages (prompt: string, images: string[], config: 
     )
 
   const json = parseJsonResponse(response)
+  const apiErrorMessage = findApiErrorMessage(json) || findApiErrorMessageInText(response.text)
+
+  if (apiErrorMessage) {
+    throw new Error(apiErrorMessage)
+  }
 
   if (!response.ok) {
     throw new Error(json?.error?.message || json?.message || `接口请求失败: ${response.status} ${response.statusText}`)
@@ -492,6 +486,8 @@ export async function generateImages (prompt: string, images: string[], config: 
 
   const output = extractOutputImages(json)
   if (output.length === 0) {
+    // 只记录响应摘要，避免日志里泄露完整响应或过长内容。
+    logger.warn(`[karin-plugin-drawImages] 接口返回成功但未解析到图片，${summarizeImageApiResponse(response)}`)
     throw new Error('接口返回成功，但没有拿到图片结果')
   }
 

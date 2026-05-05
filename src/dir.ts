@@ -2,56 +2,56 @@ import path from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
 import { karinPathBase, requireFileSync } from 'node-karin'
 
-/** 插件包绝对路径 */
+/** 插件包绝对路径。 */
 const pluginDir = fileURLToPath(new URL('../', import.meta.url))
-/** 插件包目录名称 */
+/** 插件包目录名称。 */
 const pluginName = path.basename(pluginDir)
-/** package.json */
+/** 插件 package.json 内容。 */
 const pkg = requireFileSync(path.join(pluginDir, 'package.json'))
 
 /**
- * 插件目录信息
+ * 插件目录信息。
  */
 export const dir = {
-  /** 根目录绝对路径 */
+  /** 插件根目录绝对路径。 */
   pluginDir,
-  /** 插件目录名称 */
+  /** 插件目录名称。 */
   pluginName,
-  /** package.json */
+  /** 插件 package.json 内容。 */
   pkg,
-  /** 插件版本 package.json 的 version */
+  /** 插件版本，来自 package.json 的 version。 */
   get version () {
     return pkg.version
   },
-  /** 插件名称 package.json 的 name */
+  /** 插件名称，来自 package.json 的 name。 */
   get name () {
     return pkg.name
   },
-  /** 插件默认配置目录 */
+  /** 插件包内默认配置目录。 */
   get defConfigDir () {
     return path.join(pluginDir, 'config')
   },
-  /** 插件默认配置模板 */
+  /** 插件包内默认配置模板文件。 */
   get configExampleFile () {
     return path.join(this.defConfigDir, 'config.yaml.example')
   },
-  /** 在`@karinjs`中的绝对路径 */
+  /** 插件在 @karinjs 运行时目录中的绝对路径。 */
   get karinPath () {
     return path.join(karinPathBase, pluginName)
   },
-  /** 插件配置目录 `@karinjs/karin-plugin-xxx/config` */
+  /** 插件运行时配置目录。 */
   get ConfigDir () {
     return path.join(this.karinPath, 'config')
   },
-  /** 插件配置文件 */
+  /** 插件运行时配置目录。 */
   get configDir () {
     return path.join(this.karinPath, 'config')
   },
-  /** 插件配置文件 */
+  /** 插件运行时配置文件。 */
   get configFile () {
     return path.join(this.configDir, 'config.yaml')
   },
-  /** 插件资源目录 `@karinjs/karin-plugin-xxx/resources` */
+  /** 插件运行时资源目录。 */
   get defResourcesDir () {
     return path.join(this.karinPath, 'resources')
   },

@@ -12,11 +12,6 @@ import { DISABLED_DRAW_OPTION_VALUE, type DrawConfigSource } from './src/utils/d
 const radio = components.radio
 const PROFILE_HIDDEN_FIELD_KEYS = new Set(['cooldownSeconds', 'requestTimeoutSeconds', 'n'])
 
-function fieldId (key: string, profileId?: string): string {
-  const kebabKey = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
-  return profileId ? `draw-${profileId}-${kebabKey}` : `draw-${kebabKey}`
-}
-
 type RadioOption = {
   value: string
   label: string
@@ -35,6 +30,18 @@ const RADIO_ITEMS_CLASS = 'gap-x-3 gap-y-2 text-sm'
 const CUSTOM_OPTION_VALUE = '__custom__'
 const INHERIT_OPTION: RadioOption = { value: '', label: '继承全局', description: '留空时使用全局配置中的值' }
 const DISABLED_OPTION: RadioOption = { value: DISABLED_DRAW_OPTION_VALUE, label: '关闭', description: '不发送这个参数' }
+
+/**
+ * 生成 Karin Web 配置组件 ID。
+ *
+ * @param key - 配置字段名。
+ * @param profileId - 配置档 ID；为空时生成顶层字段 ID。
+ * @returns Web 面板组件 ID。
+ */
+function fieldId (key: string, profileId?: string): string {
+  const kebabKey = key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
+  return profileId ? `draw-${profileId}-${kebabKey}` : `draw-${kebabKey}`
+}
 
 const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
   apiMode: [
@@ -81,10 +88,28 @@ const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
   ],
 }
 
+/**
+ * 生成自定义输入框组件 ID。
+ *
+ * @param key - 配置字段名。
+ * @param profileId - 配置档 ID。
+ * @returns 自定义输入框组件 ID。
+ */
 function customFieldId (key: string, profileId?: string): string {
   return `${fieldId(key, profileId)}-custom`
 }
 
+/**
+ * 创建单选组件组。
+ *
+ * @param id - 组件 ID。
+ * @param label - 组件标题。
+ * @param options - 单选项列表。
+ * @param value - 当前值。
+ * @param allowCustom - 是否追加“自定义”选项。
+ * @param className - 外层布局 className。
+ * @returns Karin radio group 组件配置。
+ */
 function createRadioGroup (
   id: string,
   label: string,
@@ -113,10 +138,24 @@ function createRadioGroup (
   })
 }
 
+/**
+ * 根据配置档场景给单选项追加“继承全局”选项。
+ *
+ * @param options - 原始单选项列表。
+ * @param allowInherit - 是否允许继承全局配置。
+ * @returns 处理后的单选项列表。
+ */
 function withInheritOption (options: RadioOption[], allowInherit: boolean): RadioOption[] {
   return allowInherit ? [INHERIT_OPTION, ...options] : options
 }
 
+/**
+ * 给输入组件追加统一样式。
+ *
+ * @param config - 输入组件配置。
+ * @param className - 外层布局 className。
+ * @returns 带统一样式的输入组件配置。
+ */
 function withInputStyle<T extends Record<string, unknown>> (config: T, className = FULL_WIDTH_CLASS): T & {
   variant: 'bordered'
   size: 'sm'
@@ -155,6 +194,13 @@ function getDescription (key: string, allowInherit = false): string | undefined 
   return description ? `${description}。留空时继承全局配置` : '留空时继承全局配置'
 }
 
+/**
+ * 获取字段占位文本。
+ *
+ * @param key - 配置字段名。
+ * @param allowInherit - 是否处于配置档继承场景。
+ * @returns 占位文本；无占位文本时返回 undefined。
+ */
 function getPlaceholder (key: string, allowInherit = false): string | undefined {
   if (allowInherit) return '留空继承全局配置'
 
@@ -172,6 +218,14 @@ function getPlaceholder (key: string, allowInherit = false): string | undefined 
   }
 }
 
+/**
+ * 创建配置区块标题。
+ *
+ * @param key - 标题组件 ID。
+ * @param title - 标题文本。
+ * @param tone - 标题视觉风格。
+ * @returns 只读输入组件，用作标题展示。
+ */
 function createSectionTitle (key: string, title: string, tone: 'default' | 'accent' = 'default') {
   const toneClass = tone === 'accent'
     ? 'bg-transparent text-sky-400 dark:text-sky-300 border-l-2 border-sky-500/45 pl-2 rounded-none'
@@ -302,13 +356,18 @@ const componentGroups = [
   },
 ] as const
 
-function getConfigValue (config: Record<string, unknown>, key: string): unknown {
-  return config[key]
-}
-
+/**
+ * 根据字段名创建对应 Web 配置组件。
+ *
+ * @param key - 配置字段名。
+ * @param config - 当前配置对象。
+ * @param profileId - 配置档 ID。
+ * @param allowInherit - 是否允许留空继承全局配置。
+ * @returns Karin 组件配置列表。
+ */
 function createFieldComponent (key: string, config: Record<string, unknown>, profileId?: string, allowInherit = false) {
   const id = fieldId(key, profileId)
-  const value = getConfigValue(config, key)
+  const value = config[key]
 
   if (allowInherit && radioFieldOptions[key]) {
     return addDescriptionToComponents([
@@ -348,6 +407,12 @@ function createFieldComponent (key: string, config: Record<string, unknown>, pro
   return addDescriptionToComponents(create(id, value, profileId), key, allowInherit)
 }
 
+/**
+ * 获取单选字段中文标题。
+ *
+ * @param key - 配置字段名。
+ * @returns 字段标题。
+ */
 function getRadioLabel (key: string): string {
   switch (key) {
     case 'apiMode':
@@ -369,6 +434,14 @@ function getRadioLabel (key: string): string {
   }
 }
 
+/**
+ * 为组件补充继承说明、占位文本和非必填属性。
+ *
+ * @param components - 原始组件列表。
+ * @param key - 配置字段名。
+ * @param allowInherit - 是否允许留空继承全局配置。
+ * @returns 补充说明后的组件列表。
+ */
 function addDescriptionToComponents (components: ComponentConfig[], key: string, allowInherit: boolean): ComponentConfig[] {
   return components.map((component) => {
     const description = getDescription(key, allowInherit)
@@ -419,6 +492,11 @@ export default defineConfig({
     version: '1.0.0',
     description: 'AI 绘图插件配置',
   },
+  /**
+   * 生成 Karin Web 配置面板组件列表。
+   *
+   * @returns 配置面板组件列表。
+   */
   components: () => {
     const settings = getDrawSettings()
     const fieldKeys = getDrawTemplateFieldKeys()
@@ -487,6 +565,12 @@ export default defineConfig({
 
     return groupedItems
   },
+  /**
+   * 保存 Karin Web 配置面板提交的表单数据。
+   *
+   * @param config - Web 面板提交的组件值字典。
+   * @returns 保存结果。
+   */
   save: async (config: Record<string, string>) => {
     const settings = getDrawSettings()
 
