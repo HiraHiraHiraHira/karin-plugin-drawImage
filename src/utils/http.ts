@@ -86,6 +86,7 @@ function collectText (value: unknown): string[] {
 
   const record = value as Record<string, unknown>
   return [
+    ...collectText(record.delta),
     ...collectText(record.text),
     ...collectText(record.content),
     ...collectText(record.output_text),

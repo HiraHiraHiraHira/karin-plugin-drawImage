@@ -7,7 +7,7 @@ draw:
     endpoint: /v1/images/generations
     model: gpt-image-2
     imageDetail: high
-    cooldownSeconds: 180
+    taskLockEnabled: true
     requestTimeoutSeconds: 600
     moderation: auto
     background: auto
@@ -24,7 +24,7 @@ draw:
       endpoint: ''
       model: ''
       imageDetail: ''
-      cooldownSeconds: ''
+      taskLockEnabled: ''
       requestTimeoutSeconds: ''
       moderation: ''
       background: ''
@@ -34,13 +34,13 @@ draw:
       n: ''
     profile2:
       name: 配置二
-      apiMode: chatCompletions
+      apiMode: responses
       baseUrl: ''
       apiKey: ''
       endpoint: ''
       model: gpt-5.4
       imageDetail: high
-      cooldownSeconds: ''
+      taskLockEnabled: ''
       requestTimeoutSeconds: ''
       moderation: ''
       background: ''
@@ -56,7 +56,7 @@ draw:
       endpoint: ''
       model: ''
       imageDetail: ''
-      cooldownSeconds: ''
+      taskLockEnabled: ''
       requestTimeoutSeconds: ''
       moderation: ''
       background: ''

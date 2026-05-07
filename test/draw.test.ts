@@ -7,6 +7,7 @@ import {
   DRAW_COMMAND_REG,
   DISABLED_DRAW_OPTION_VALUE,
   DRAW_USAGE_TEXT,
+  TRANSPARENT_DRAW_COMMAND_REG,
   buildImageRequestPayload,
   extractOutputImages,
   generateImages,
@@ -20,6 +21,14 @@ test('parseDrawPrompt extracts text after #draw', () => {
   assert.equal(match?.[1], 'cat')
   assert.equal(parseDrawPrompt('#draw cat with sunglasses'), 'cat with sunglasses')
   assert.equal(parseDrawPrompt('#draw    '), '')
+})
+
+test('parseDrawPrompt extracts text after #tpdraw', () => {
+  const match = '#tpdraw transparent sticker'.match(TRANSPARENT_DRAW_COMMAND_REG)
+
+  assert.equal(match?.[1], 'transparent sticker')
+  assert.equal(parseDrawPrompt('#tpdraw 透明贴纸'), '透明贴纸')
+  assert.equal(parseDrawPrompt('#tpdraw    '), '')
 })
 
 test('buildImageRequestPayload omits image and n when unnecessary', () => {
@@ -109,6 +118,48 @@ test('buildImageRequestPayload uses chat completions content for chat mode', () 
   })
 })
 
+test('buildImageRequestPayload uses responses input content for responses mode', () => {
+  const payload = buildImageRequestPayload({
+    prompt: '把这张图改成教室背景，不改变人物主体',
+    images: ['https://cdn.example.com/input.png'],
+    options: toDrawConfig({
+      apiMode: 'responses',
+      baseUrl: 'https://example.com',
+      apiKey: 'sk-test',
+      model: 'gpt-5.4',
+      imageDetail: 'high',
+    }),
+  })
+
+  assert.deepEqual(payload, {
+    model: 'gpt-5.4',
+    stream: true,
+    tools: [
+      {
+        type: 'image_generation',
+        moderation: 'auto',
+        background: 'auto',
+        output_format: 'png',
+        quality: 'high',
+        size: '2160x3840',
+      },
+    ],
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: '把这张图改成教室背景，不改变人物主体' },
+          {
+            type: 'input_image',
+            image_url: 'https://cdn.example.com/input.png',
+            detail: 'high',
+          },
+        ],
+      },
+    ],
+  })
+})
+
 test('extractOutputImages prefers b64 then url entries', () => {
   const output = extractOutputImages({
     data: [
@@ -137,6 +188,43 @@ test('extractOutputImages reads chat completion image links', () => {
   assert.deepEqual(output, [
     'https://cdn.example.com/output.png',
     'base64://ZmFrZQ==',
+  ])
+})
+
+test('extractOutputImages reads responses output text image links', () => {
+  const output = extractOutputImages({
+    output: [
+      {
+        type: 'message',
+        content: [
+          {
+            type: 'output_text',
+            text: '完成：![image](https://cdn.example.com/responses.png)',
+          },
+        ],
+      },
+    ],
+  })
+
+  assert.deepEqual(output, [
+    'https://cdn.example.com/responses.png',
+  ])
+})
+
+test('extractOutputImages reads responses image generation result from raw event text', () => {
+  const fakeBase64 = 'a'.repeat(80)
+  const output = extractOutputImages({
+    choices: [
+      {
+        message: {
+          content: `data: {"type":"response.image_generation_call.completed","result":"${fakeBase64}"}`,
+        },
+      },
+    ],
+  })
+
+  assert.deepEqual(output, [
+    `base64://${fakeBase64}`,
   ])
 })
 
@@ -254,6 +342,46 @@ test('generateImages aggregates streaming chat completion responses', async () =
   }
 })
 
+test('generateImages aggregates streaming responses api text deltas', async () => {
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.setEncoding('utf8')
+    req.on('data', chunk => {
+      body += chunk
+    })
+    req.on('end', () => {
+      const parsed = JSON.parse(body)
+      assert.equal(parsed.stream, true)
+      assert.equal(parsed.input?.[0]?.content?.[0]?.type, 'input_text')
+      assert.equal(parsed.input?.[0]?.content?.[1]?.type, 'input_image')
+
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      res.write('data: {"type":"response.output_text.delta","delta":"![image](https://cdn.example.com/responses-stream.png)"}\n\n')
+      res.write('data: {"type":"response.completed"}\n\n')
+      res.end()
+    })
+  })
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as AddressInfo
+
+  try {
+    const output = await generateImages('给她换个背景', ['https://cdn.example.com/input.png'], toDrawConfig({
+      apiMode: 'responses',
+      baseUrl: `http://127.0.0.1:${address?.port}`,
+      apiKey: 'sk-test',
+      model: 'gpt-5.4',
+      requestTimeoutSeconds: 3,
+    }))
+
+    assert.deepEqual(output, [
+      'https://cdn.example.com/responses-stream.png',
+    ])
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
 test('generateImages reports streaming api error events even when http succeeds', async () => {
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -284,6 +412,7 @@ test('generateImages reports streaming api error events even when http succeeds'
 
 test('DRAW_USAGE_TEXT stays user-facing and compact', () => {
   assert.match(DRAW_USAGE_TEXT, /#draw 提示词/)
+  assert.match(DRAW_USAGE_TEXT, /#tpdraw 提示词/)
   assert.match(DRAW_USAGE_TEXT, /引用图片/)
 })
 
@@ -296,6 +425,7 @@ test('toDrawConfig fills missing values from code defaults', () => {
   assert.equal(config.model, 'gpt-image-2')
   assert.equal(config.apiMode, 'images')
   assert.equal(config.imageDetail, 'high')
+  assert.equal(config.taskLockEnabled, true)
   assert.equal(config.cooldownSeconds, 180)
   assert.equal(config.requestTimeoutSeconds, 600)
   assert.equal(config.moderation, 'auto')
@@ -315,6 +445,18 @@ test('toDrawConfig uses chat completions endpoint by mode', () => {
 
   assert.equal(config.apiMode, 'chatCompletions')
   assert.equal(config.endpoint, '/v1/chat/completions')
+  assert.equal(config.imageDetail, 'high')
+})
+
+test('toDrawConfig uses responses endpoint by mode', () => {
+  const config = toDrawConfig({
+    apiMode: 'responses',
+    endpoint: '/v1/images/generations',
+    model: 'gpt-5.4',
+  })
+
+  assert.equal(config.apiMode, 'responses')
+  assert.equal(config.endpoint, '/v1/responses')
   assert.equal(config.imageDetail, 'high')
 })
 

@@ -7,10 +7,11 @@ import {
   saveDrawSettings,
   type DrawProfileId,
 } from './src/utils/config'
-import { DISABLED_DRAW_OPTION_VALUE, type DrawConfigSource } from './src/utils/draw'
+import { DRAW_SIZE_PRESETS, DISABLED_DRAW_OPTION_VALUE, type DrawConfigSource } from './src/utils/draw'
 
 const radio = components.radio
-const PROFILE_HIDDEN_FIELD_KEYS = new Set(['cooldownSeconds', 'requestTimeoutSeconds', 'n'])
+const switchComponent = components.switch
+const PROFILE_HIDDEN_FIELD_KEYS = new Set(['taskLockEnabled', 'cooldownSeconds', 'requestTimeoutSeconds', 'n'])
 
 type RadioOption = {
   value: string
@@ -31,6 +32,11 @@ const CUSTOM_OPTION_VALUE = '__custom__'
 const INHERIT_OPTION: RadioOption = { value: '', label: '继承全局', description: '留空时使用全局配置中的值' }
 const DISABLED_OPTION: RadioOption = { value: DISABLED_DRAW_OPTION_VALUE, label: '关闭', description: '不发送这个参数' }
 
+type ValidationFailure = {
+  success: false
+  message: string
+}
+
 /**
  * 生成 Karin Web 配置组件 ID。
  *
@@ -47,6 +53,7 @@ const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
   apiMode: [
     { value: 'images', label: '图片接口', description: '固定使用 /v1/images/generations' },
     { value: 'chatCompletions', label: '聊天接口', description: '固定使用 /v1/chat/completions' },
+    { value: 'responses', label: 'Responses', description: '固定使用 /v1/responses' },
     { value: 'custom', label: '自定义', description: '使用自定义请求路径' },
   ],
   imageDetail: [
@@ -81,10 +88,8 @@ const radioFieldOptions: Partial<Record<string, RadioOption[]>> = {
   ],
   size: [
     DISABLED_OPTION,
-    { value: 'auto', label: '自动' },
-    { value: '1024x1024', label: '1024x1024' },
-    { value: '1536x1024', label: '1536x1024' },
-    { value: '1024x1536', label: '1024x1536' },
+    { value: 'auto', label: '自动', description: '由上游模型自动选择尺寸' },
+    ...DRAW_SIZE_PRESETS,
   ],
 }
 
@@ -171,20 +176,30 @@ function withInputStyle<T extends Record<string, unknown>> (config: T, className
   }
 }
 
+/**
+ * 判断表单值是否为空字符串。
+ *
+ * @param value - Web 面板提交的字段值。
+ * @returns 字段是否为空。
+ */
+function isBlankFormValue (value: unknown): boolean {
+  return String(value ?? '').trim() === ''
+}
+
 const fieldDescriptions: Partial<Record<string, string>> = {
   name: '只用于面板显示，方便识别配置档',
   apiMode: '切换接口模式会同步切换实际请求路由，custom 模式才使用自定义请求路径',
   baseUrl: 'API 服务地址，不包含末尾斜杠；留空时继承全局配置',
   apiKey: '当前服务的 API 密钥；留空时继承全局配置',
-  endpoint: '仅 custom 模式使用；images/chatCompletions 会自动使用固定路由',
+  endpoint: '仅 custom 模式使用；images/chatCompletions/responses 会自动使用固定路由',
   model: '当前配置档使用的模型名称；留空时继承全局配置',
-  imageDetail: '仅 chatCompletions 带图请求使用',
+  imageDetail: '仅 chatCompletions/responses 带图请求使用',
+  taskLockEnabled: '开启后同一时间只执行一个绘图任务，上一张完成后才能继续下一张',
   size: '图片尺寸；选自定义时填写下方自定义尺寸',
   quality: '生成质量，具体可用值取决于上游模型',
   outputFormat: '输出图片格式，具体可用值取决于上游模型',
   moderation: '审核级别，具体可用值取决于上游接口',
   background: '背景模式，透明背景通常需要模型支持',
-  cooldownSeconds: '每个用户的 #draw 冷却时间，失败请求也会进入冷却',
   requestTimeoutSeconds: '等待上游返回的最长时间，图片生成较慢时可调大',
 }
 
@@ -260,8 +275,8 @@ const fieldLayouts: Partial<Record<string, string>> = {
   outputFormat: HALF_WIDTH_CLASS,
   moderation: HALF_WIDTH_CLASS,
   background: HALF_WIDTH_CLASS,
+  taskLockEnabled: HALF_WIDTH_CLASS,
   n: HALF_WIDTH_CLASS,
-  cooldownSeconds: HALF_WIDTH_CLASS,
   requestTimeoutSeconds: HALF_WIDTH_CLASS,
 }
 
@@ -297,6 +312,7 @@ const componentFactories: Record<string, ComponentFactory> = {
       description: getDescription('endpoint'),
       placeholder: getPlaceholder('endpoint'),
     }, fieldLayouts.endpoint),
+    isRequired: false,
     defaultValue: String(value ?? ''),
   })],
   model: (id, value) => [input.string(id, {
@@ -313,6 +329,16 @@ const componentFactories: Record<string, ComponentFactory> = {
   imageDetail: (id, value) => [
     createRadioGroup(id, '图像细节', radioFieldOptions.imageDetail ?? [], value, false, fieldLayouts.imageDetail),
   ],
+  taskLockEnabled: (id, value) => [switchComponent.options(id, {
+    ...withInputStyle({
+      label: '绘图任务限制',
+      description: getDescription('taskLockEnabled'),
+    }, fieldLayouts.taskLockEnabled),
+    startText: '开启',
+    endText: '关闭',
+    isSelected: value !== false && String(value ?? '').trim() !== 'false',
+    defaultSelected: value !== false && String(value ?? '').trim() !== 'false',
+  })],
   background: (id, value) => [
     createRadioGroup(id, '背景', radioFieldOptions.background ?? [], value, false, fieldLayouts.background),
   ],
@@ -328,8 +354,9 @@ const componentFactories: Record<string, ComponentFactory> = {
       ...withInputStyle({
         label: '自定义尺寸',
         description: getDescription('size'),
-        placeholder: '例如 1024x1024；选中“自定义”时使用',
+        placeholder: '例如 2048x2048；选中“自定义”时使用',
       }, HALF_WIDTH_CLASS),
+      isRequired: false,
       defaultValue: radioFieldOptions.size?.some((option) => option.value === String(value ?? '').trim())
         || String(value ?? '').trim() === DISABLED_DRAW_OPTION_VALUE
         ? ''
@@ -352,7 +379,7 @@ const componentGroups = [
   {
     key: 'runtime',
     title: '高级选项',
-    fields: ['moderation', 'background', 'n', 'cooldownSeconds', 'requestTimeoutSeconds'],
+    fields: ['moderation', 'background', 'taskLockEnabled', 'n', 'requestTimeoutSeconds'],
   },
 ] as const
 
@@ -379,6 +406,7 @@ function createFieldComponent (key: string, config: Record<string, unknown>, pro
               description: getDescription('size', allowInherit),
               placeholder: getPlaceholder('size', allowInherit),
             }, HALF_WIDTH_CLASS),
+            isRequired: false,
             defaultValue: radioFieldOptions.size?.some((option) => option.value === String(value ?? '').trim())
               || String(value ?? '').trim() === DISABLED_DRAW_OPTION_VALUE
               ? ''
@@ -472,6 +500,36 @@ function addDescriptionToComponents (components: ComponentConfig[], key: string,
 
     return component
   })
+}
+
+/**
+ * 校验单个配置作用域的条件必填字段。
+ *
+ * @param config - Web 面板提交的组件值字典。
+ * @param profileId - 配置作用域 ID。
+ * @param label - 作用域中文名称。
+ * @returns 校验失败结果；通过时返回 undefined。
+ */
+function validateConditionalRequiredFields (
+  config: Record<string, string>,
+  profileId: string,
+  label: string,
+): ValidationFailure | undefined {
+  if (config[fieldId('size', profileId)] === CUSTOM_OPTION_VALUE && isBlankFormValue(config[customFieldId('size', profileId)])) {
+    return {
+      success: false,
+      message: `${label} 已选择自定义尺寸，请填写自定义尺寸`,
+    }
+  }
+
+  if (config[fieldId('apiMode', profileId)] === 'custom' && isBlankFormValue(config[fieldId('endpoint', profileId)])) {
+    return {
+      success: false,
+      message: `${label} 已选择自定义接口模式，请填写自定义请求路径`,
+    }
+  }
+
+  return undefined
 }
 
 export default defineConfig({
@@ -573,22 +631,38 @@ export default defineConfig({
    */
   save: async (config: Record<string, string>) => {
     const settings = getDrawSettings()
+    const globalValidation = validateConditionalRequiredFields(config, 'global', '全局配置')
+
+    if (globalValidation) {
+      return globalValidation
+    }
+
+    for (const profileId of getDrawProfileIds()) {
+      const profileName = config[fieldId('name', profileId)] || settings.profiles[profileId].name
+      const profileValidation = validateConditionalRequiredFields(config, profileId, profileName)
+
+      if (profileValidation) {
+        return profileValidation
+      }
+    }
 
     const profiles = Object.fromEntries(getDrawProfileIds().map((profileId) => {
       const rawProfile = settings.rawProfiles[profileId] as Record<string, unknown>
       const profileConfig = Object.fromEntries(
-        getDrawTemplateFieldKeys().map((key) => {
-          if (PROFILE_HIDDEN_FIELD_KEYS.has(key)) {
-            return [key, rawProfile[key]]
-          }
+        getDrawTemplateFieldKeys()
+          .filter((key) => key !== 'cooldownSeconds')
+          .map((key) => {
+            if (PROFILE_HIDDEN_FIELD_KEYS.has(key)) {
+              return [key, rawProfile[key]]
+            }
 
-          const value = config[fieldId(key, profileId)]
-          if (value === CUSTOM_OPTION_VALUE) {
-            return [key, config[customFieldId(key, profileId)]]
-          }
+            const value = config[fieldId(key, profileId)]
+            if (value === CUSTOM_OPTION_VALUE) {
+              return [key, config[customFieldId(key, profileId)]]
+            }
 
-          return [key, value]
-        }),
+            return [key, value]
+          }),
       )
 
       return [profileId, profileConfig]
@@ -597,6 +671,7 @@ export default defineConfig({
     const global = Object.fromEntries(
       getDrawTemplateFieldKeys()
         .filter((key) => key !== 'name')
+        .filter((key) => key !== 'cooldownSeconds')
         .map((key) => {
           const value = config[fieldId(key, 'global')]
           if (value === CUSTOM_OPTION_VALUE) {

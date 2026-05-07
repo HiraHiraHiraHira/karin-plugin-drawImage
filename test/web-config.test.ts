@@ -26,9 +26,11 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.ok(baselineKeys.includes('draw-profile2-image-detail'))
   assert.ok(baselineKeys.includes('draw-profile2-size-custom'))
   assert.ok(baselineKeys.includes('draw-profile3-api-key'))
-  assert.ok(baselineKeys.includes('draw-global-cooldown-seconds'))
+  assert.ok(baselineKeys.includes('draw-global-task-lock-enabled'))
+  assert.ok(!baselineKeys.includes('draw-global-cooldown-seconds'))
   assert.ok(baselineKeys.includes('draw-global-request-timeout-seconds'))
   assert.ok(baselineKeys.includes('draw-global-n'))
+  assert.ok(!baselineKeys.includes('draw-profile1-task-lock-enabled'))
   assert.ok(!baselineKeys.includes('draw-profile1-cooldown-seconds'))
   assert.ok(!baselineKeys.includes('draw-profile1-request-timeout-seconds'))
   assert.ok(!baselineKeys.includes('draw-profile1-n'))
@@ -44,6 +46,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.equal(componentTypes['draw-profile1-quality'], 'radio-group')
   assert.equal(componentTypes['draw-profile1-size'], 'radio-group')
   assert.equal(componentTypes['draw-profile1-size-custom'], 'input')
+  assert.equal(componentTypes['draw-global-task-lock-enabled'], 'switch')
   assert.equal(componentTypes['draw-profile1-moderation-custom'], undefined)
   assert.equal(componentTypes['draw-profile1-background-custom'], undefined)
   assert.equal(componentTypes['draw-profile1-output-format-custom'], undefined)
@@ -59,15 +62,16 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
 
   const apiModeField = findComponent('draw-profile1-api-mode')
   assert.equal(apiModeField?.label, '接口模式')
-  assert.deepEqual(apiModeField?.radio?.map((item: any) => item.value), ['', 'images', 'chatCompletions', 'custom'])
+  assert.deepEqual(apiModeField?.radio?.map((item: any) => item.value), ['', 'images', 'chatCompletions', 'responses', 'custom'])
   assert.match(String(apiModeField?.description), /留空时继承全局配置/)
   assert.match(String(apiModeField?.radio?.[0]?.description), /全局配置/)
   assert.match(String(apiModeField?.radio?.[1]?.description), /\/v1\/images\/generations/)
+  assert.match(String(apiModeField?.radio?.[3]?.description), /\/v1\/responses/)
 
   const imageDetailField = findComponent('draw-profile1-image-detail')
   assert.equal(imageDetailField?.label, '图像细节')
   assert.deepEqual(imageDetailField?.radio?.map((item: any) => item.value), ['', 'auto', 'low', 'high', 'original'])
-  assert.match(String(imageDetailField?.description), /chatCompletions/)
+  assert.match(String(imageDetailField?.description), /responses/)
 
   const moderationField = findComponent('draw-profile1-moderation')
   assert.equal(moderationField?.label, '审核级别')
@@ -80,7 +84,11 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   const generationTitle = findComponent('draw-title-profile1-generation')
   const runtimeTitle = findComponent('draw-title-profile1-runtime')
   assert.equal(sizeField?.label, '尺寸')
-  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['', DISABLED_DRAW_OPTION_VALUE, 'auto', '1024x1024', '1536x1024', '1024x1536', '__custom__'])
+  assert.deepEqual(sizeField?.radio?.map((item: any) => item.value), ['', DISABLED_DRAW_OPTION_VALUE, 'auto', '1024x1024', '1536x1024', '1024x1536', '2560x1440', '3840x2160', '2160x3840', '__custom__'])
+  assert.match(String(sizeField?.radio?.[3]?.label), /头像 \/ 主图/)
+  assert.match(String(sizeField?.radio?.[3]?.description), /1024x1024/)
+  assert.match(String(sizeField?.radio?.[6]?.label), /电脑壁纸/)
+  assert.match(String(sizeField?.radio?.[8]?.description), /4K/)
   assert.equal(sizeCustomField?.label, '自定义尺寸')
   assert.match(String(sizeCustomField?.placeholder), /留空继承全局配置/)
   assert.match(String(findComponent('draw-profile1-base-url')?.placeholder), /留空继承全局配置/)
@@ -90,6 +98,8 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(findComponent('draw-global-base-url')?.placeholder), /https:\/\/example\.com/)
   assert.match(String(findComponent('draw-global-base-url')?.description), /API 服务地址/)
   assert.match(String(findComponent('draw-profile1-endpoint')?.description), /custom 模式/)
+  assert.equal(findComponent('draw-profile1-endpoint')?.isRequired, false)
+  assert.equal(findComponent('draw-profile1-size-custom')?.isRequired, false)
   assert.equal(connectionTitle?.defaultValue, '基础连接')
   assert.equal(profileTitle?.defaultValue, '配置一')
   assert.equal(generationTitle?.defaultValue, '生成参数')
@@ -112,9 +122,12 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
   assert.match(String(findComponent('draw-profile1-base-url')?.className), /md:col-span-4/)
   assert.match(String(findComponent('draw-profile1-model')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-profile1-output-format')?.className), /md:col-span-6/)
-  assert.match(String(findComponent('draw-global-cooldown-seconds')?.className), /md:col-span-6/)
+  assert.equal(findComponent('draw-global-task-lock-enabled')?.label, '绘图任务限制')
+  assert.equal(findComponent('draw-global-task-lock-enabled')?.defaultSelected, true)
+  assert.match(String(findComponent('draw-global-task-lock-enabled')?.description), /上一张完成/)
   assert.match(String(findComponent('draw-global-request-timeout-seconds')?.className), /md:col-span-6/)
   assert.match(String(findComponent('draw-global-n')?.className), /md:col-span-6/)
+  assert.equal(findComponent('draw-profile1-task-lock-enabled'), undefined)
   assert.equal(findComponent('draw-profile1-cooldown-seconds'), undefined)
   assert.equal(findComponent('draw-profile1-request-timeout-seconds'), undefined)
   assert.equal(findComponent('draw-profile1-n'), undefined)
@@ -129,7 +142,7 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
       'draw-global-endpoint': '/v1/images/generations',
       'draw-global-model': 'global-model',
       'draw-global-image-detail': 'high',
-      'draw-global-cooldown-seconds': '180',
+      'draw-global-task-lock-enabled': 'true',
       'draw-global-request-timeout-seconds': '600',
       'draw-global-moderation': 'auto',
       'draw-global-background': 'auto',
@@ -193,12 +206,89 @@ test('web config uses fixed draw fields and saves runtime yaml', async () => {
     assert.match(next, /apiMode: chatCompletions/)
     assert.match(next, /endpoint: ""/)
     assert.match(next, /imageDetail: original/)
-    assert.match(next, /cooldownSeconds: ['"]180['"]|cooldownSeconds: 180/)
+    assert.match(next, /taskLockEnabled: ['"]true['"]|taskLockEnabled: true/)
+    assert.doesNotMatch(next, /cooldownSeconds:/)
     assert.match(next, /requestTimeoutSeconds: ['"]600['"]|requestTimeoutSeconds: 600/)
     assert.match(next, /n: ['"]1['"]|n: 1/)
+
+    const missingCustomSize = await webConfig.save?.({
+      ...baseSaveConfig(),
+      'draw-global-size': '__custom__',
+      'draw-global-size-custom': '',
+    })
+    assert.equal(missingCustomSize?.success, false)
+    assert.match(String(missingCustomSize?.message), /自定义尺寸/)
+
+    const missingCustomEndpoint = await webConfig.save?.({
+      ...baseSaveConfig(),
+      'draw-profile1-api-mode': 'custom',
+      'draw-profile1-endpoint': '',
+    })
+    assert.equal(missingCustomEndpoint?.success, false)
+    assert.match(String(missingCustomEndpoint?.message), /自定义请求路径/)
   } finally {
     if (originalRuntime) {
       await fs.writeFile(dir.configFile, originalRuntime, 'utf8')
     }
   }
 })
+
+function baseSaveConfig (): Record<string, string> {
+  return {
+    'draw-active-profile': 'profile1',
+    'draw-global-api-mode': 'images',
+    'draw-global-base-url': 'https://global.example.com',
+    'draw-global-api-key': 'sk-global',
+    'draw-global-endpoint': '/v1/images/generations',
+    'draw-global-model': 'global-model',
+    'draw-global-image-detail': 'high',
+    'draw-global-task-lock-enabled': 'true',
+    'draw-global-request-timeout-seconds': '600',
+    'draw-global-moderation': 'auto',
+    'draw-global-background': 'auto',
+    'draw-global-output-format': 'png',
+    'draw-global-quality': 'high',
+    'draw-global-size': '1024x1024',
+    'draw-global-size-custom': '',
+    'draw-global-n': '1',
+    'draw-profile1-name': '配置一',
+    'draw-profile1-api-mode': 'images',
+    'draw-profile1-base-url': 'https://one.example.com',
+    'draw-profile1-api-key': 'sk-one',
+    'draw-profile1-endpoint': '/v1/images/generations',
+    'draw-profile1-model': 'gpt-image-2',
+    'draw-profile1-image-detail': 'high',
+    'draw-profile1-moderation': 'low',
+    'draw-profile1-background': 'auto',
+    'draw-profile1-output-format': 'png',
+    'draw-profile1-quality': 'high',
+    'draw-profile1-size': '1024x1024',
+    'draw-profile1-size-custom': '',
+    'draw-profile2-name': '配置二',
+    'draw-profile2-api-mode': 'chatCompletions',
+    'draw-profile2-base-url': '',
+    'draw-profile2-api-key': '',
+    'draw-profile2-endpoint': '',
+    'draw-profile2-model': 'gpt-5.4',
+    'draw-profile2-image-detail': 'original',
+    'draw-profile2-moderation': DISABLED_DRAW_OPTION_VALUE,
+    'draw-profile2-background': DISABLED_DRAW_OPTION_VALUE,
+    'draw-profile2-output-format': DISABLED_DRAW_OPTION_VALUE,
+    'draw-profile2-quality': DISABLED_DRAW_OPTION_VALUE,
+    'draw-profile2-size': DISABLED_DRAW_OPTION_VALUE,
+    'draw-profile2-size-custom': '',
+    'draw-profile3-name': '配置三',
+    'draw-profile3-api-mode': 'images',
+    'draw-profile3-base-url': 'https://three.example.com',
+    'draw-profile3-api-key': '',
+    'draw-profile3-endpoint': '/v1/images/generations',
+    'draw-profile3-model': 'gpt-image-2',
+    'draw-profile3-image-detail': 'high',
+    'draw-profile3-moderation': 'auto',
+    'draw-profile3-background': 'auto',
+    'draw-profile3-output-format': 'png',
+    'draw-profile3-quality': 'high',
+    'draw-profile3-size': '1024x1024',
+    'draw-profile3-size-custom': '',
+  }
+}

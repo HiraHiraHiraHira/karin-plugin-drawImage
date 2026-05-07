@@ -13,6 +13,7 @@ function createConfig (overrides: Partial<DrawConfig> = {}): DrawConfig {
     endpoint: '/v1/images/generations',
     model: 'gpt-image-2',
     imageDetail: 'high',
+    taskLockEnabled: true,
     cooldownSeconds: 180,
     requestTimeoutSeconds: 600,
     moderation: 'auto',
@@ -93,6 +94,34 @@ test('handleDrawMessage sends generated images for image-to-image mode', async (
   assert.deepEqual(replies[0], ['https://cdn.example.com/output.png'])
 })
 
+test('handleDrawMessage temporarily uses transparent background for #tpdraw', async () => {
+  const replies: unknown[] = []
+  let generateArgs: { prompt: string, background?: string } | null = null
+
+  const result = await handleDrawMessage({
+    msg: '#tpdraw 透明贴纸',
+    image: [],
+    reply: async (message: unknown) => {
+      replies.push(message)
+    },
+  }, {
+    getConfig: () => createConfig({ background: 'auto' }),
+    transformConfig: (config) => ({ ...config, background: 'transparent' }),
+    resolveImages: async (images) => [...images],
+    generate: async (prompt, _images, config) => {
+      generateArgs = { prompt, background: config.background }
+      return ['https://cdn.example.com/output.png']
+    },
+  })
+
+  assert.equal(result, true)
+  assert.deepEqual(generateArgs, {
+    prompt: '透明贴纸',
+    background: 'transparent',
+  })
+  assert.deepEqual(replies[0], ['https://cdn.example.com/output.png'])
+})
+
 test('handleDrawMessage uses images from replied message for image-to-image mode', async () => {
   const replies: unknown[] = []
   let generateArgs: { prompt: string, images: string[] } | null = null
@@ -139,79 +168,135 @@ test('handleDrawMessage uses images from replied message for image-to-image mode
   assert.deepEqual(replies[0], ['https://cdn.example.com/output.png'])
 })
 
-test('handleDrawMessage applies per-user cooldown even after failure', async () => {
+test('handleDrawMessage blocks while another draw task is running', async () => {
   const replies: unknown[] = []
-  let now = 1_000
+  const taskState = { running: false }
+  let releaseGenerate: (() => void) | undefined
+  let generateCount = 0
 
-  const deps = {
-    getConfig: () => createConfig({ cooldownSeconds: 180 }),
+  const firstTask = handleDrawMessage({
+    msg: '#draw 第一张',
+    image: [],
+    reply: async (message: unknown) => {
+      replies.push(message)
+    },
+  }, {
+    getConfig: () => createConfig(),
     resolveImages: async (images: readonly string[]) => [...images],
     generate: async () => {
-      throw new Error('boom')
+      generateCount += 1
+      await new Promise<void>(resolve => {
+        releaseGenerate = resolve
+      })
+      return ['https://cdn.example.com/output.png']
     },
-    now: () => now,
+    taskState,
+  })
+
+  await handleDrawMessage({
+    msg: '#draw 第二张',
+    image: [],
+    reply: async (message: unknown) => {
+      replies.push(message)
+    },
+  }, {
+    getConfig: () => createConfig(),
+    resolveImages: async (images: readonly string[]) => [...images],
+    generate: async () => {
+      generateCount += 1
+      return ['https://cdn.example.com/second.png']
+    },
+    taskState,
+  })
+
+  assert.equal(generateCount, 1)
+  assert.match(String(replies[0]), /已有绘图任务正在执行/)
+
+  releaseGenerate?.()
+  await firstTask
+
+  assert.equal(taskState.running, false)
+  assert.deepEqual(replies[1], ['https://cdn.example.com/output.png'])
+})
+
+test('handleDrawMessage releases draw task after failure', async () => {
+  const replies: unknown[] = []
+  const taskState = { running: false }
+  let generateCount = 0
+
+  const deps = {
+    getConfig: () => createConfig(),
+    resolveImages: async (images: readonly string[]) => [...images],
+    generate: async () => {
+      generateCount += 1
+      if (generateCount === 1) {
+        throw new Error('boom')
+      }
+
+      return ['https://cdn.example.com/output.png']
+    },
+    taskState,
   }
 
   await handleDrawMessage({
     msg: '#draw 第一张',
     image: [],
-    userId: '10001',
     reply: async (message: unknown) => {
       replies.push(message)
     },
   }, deps)
 
+  assert.equal(taskState.running, false)
   assert.match(String(replies[0]), /绘图失败/)
-
-  now += 1_000
 
   await handleDrawMessage({
     msg: '#draw 第二张',
     image: [],
-    userId: '10001',
     reply: async (message: unknown) => {
       replies.push(message)
     },
   }, deps)
 
-  assert.match(String(replies[1]), /冷却/)
-  assert.match(String(replies[1]), /179/)
+  assert.equal(generateCount, 2)
+  assert.deepEqual(replies[1], ['https://cdn.example.com/output.png'])
 })
 
-test('handleDrawMessage cooldown is isolated per user', async () => {
-  const repliesA: unknown[] = []
-  const repliesB: unknown[] = []
+test('handleDrawMessage allows concurrent draw tasks when task lock is disabled', async () => {
+  const replies: unknown[] = []
+  const taskState = { running: false }
   let generateCount = 0
 
   const deps = {
-    getConfig: () => createConfig({ cooldownSeconds: 180 }),
+    getConfig: () => createConfig({ taskLockEnabled: false }),
     resolveImages: async (images: readonly string[]) => [...images],
     generate: async () => {
       generateCount += 1
       return ['https://cdn.example.com/output.png']
     },
-    now: () => 10_000,
+    taskState,
   }
 
   await handleDrawMessage({
-    msg: '#draw A',
+    msg: '#draw 第一张',
     image: [],
-    userId: 'user-a',
     reply: async (message: unknown) => {
-      repliesA.push(message)
+      replies.push(message)
     },
   }, deps)
 
+  taskState.running = true
+
   await handleDrawMessage({
-    msg: '#draw B',
+    msg: '#draw 第二张',
     image: [],
-    userId: 'user-b',
     reply: async (message: unknown) => {
-      repliesB.push(message)
+      replies.push(message)
     },
   }, deps)
 
   assert.equal(generateCount, 2)
-  assert.equal(repliesA.length, 1)
-  assert.equal(repliesB.length, 1)
+  assert.deepEqual(replies, [
+    ['https://cdn.example.com/output.png'],
+    ['https://cdn.example.com/output.png'],
+  ])
 })

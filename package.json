@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "author": "huayunduan",
   "type": "module",
-  "description": "Karin AI drawing plugin for #draw, supporting text-to-image and image-to-image with Images API and Chat Completions backends",
+  "description": "Karin AI drawing plugin for #draw, supporting text-to-image and image-to-image with Images API, Chat Completions, and Responses backends",
   "homepage": "https://github.com/Chenyuxin221/karin-plugin-drawImage",
   "bugs": {
     "url": "https://github.com/Chenyuxin221/karin-plugin-drawImage/issues"
@@ -20,7 +20,8 @@
     "text-to-image",
     "image-to-image",
     "openai-images",
-    "chat-completions"
+    "chat-completions",
+    "responses-api"
   ],
   "scripts": {
     "app": "node lib/src/app.js",

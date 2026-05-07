@@ -1,16 +1,17 @@
 # karin-plugin-drawImages
 
-Karin 的 `#draw` AI 绘图插件，支持文生图和图生图，适配 OpenAI Images API 兼容接口，也支持 Chat Completions 图像输入模式。
+Karin 的 `#draw` AI 绘图插件，支持文生图和图生图，适配 OpenAI Images API 兼容接口，也支持 Chat Completions 与 Responses 图像输入模式。
 
 ## 功能
 
 - `#draw 提示词` 文生图
 - `#draw 提示词` + 附带图片 图生图
 - `#draw 提示词` + 引用图片 图生图
+- `#tpdraw 提示词` 临时透明背景绘图
 - 固定三组配置档，可在面板中一键切换
 - 子配置留空时继承全局配置
-- 支持每用户绘图冷却
-- 支持流式聚合 Chat Completions 返回结果
+- 同一时间只执行一个绘图任务，上一张完成后才能继续下一张
+- 支持流式聚合 Chat Completions / Responses 返回结果
 
 ## 安装
 
@@ -36,6 +37,12 @@ pnpm build
 - `#draw 提示词`
 - `#draw 提示词` 并附带图片
 - `#draw 提示词` 并引用图片
+- `#tpdraw 提示词` 临时将背景参数设为透明，不会修改配置文件
+- `#配置` 查看配置档列表，当前配置后会显示 `#`
+- `#切换配置1` 切换到第 1 个配置档
+- `#分辨率` 查看固定分辨率列表，当前分辨率后会显示 `#`
+- `#切换分辨率1` 切换当前配置档到第 1 个固定分辨率
+- `#help` 查看命令菜单
 
 当消息里带图时，会自动进入图生图模式。
 
@@ -86,7 +93,7 @@ draw:
     endpoint: /v1/images/generations
     model: gpt-image-2
     imageDetail: high
-    cooldownSeconds: 180
+    taskLockEnabled: true
     requestTimeoutSeconds: 600
     moderation: auto
     background: auto
@@ -119,13 +126,13 @@ draw:
 | 字段 | 说明 | 默认值 |
 | --- | --- | --- |
 | `activeProfile` | 当前启用的配置档 | `profile1` |
-| `apiMode` | 接口模式：`images`、`chatCompletions`、`custom` | `images` |
+| `apiMode` | 接口模式：`images`、`chatCompletions`、`responses`、`custom` | `images` |
 | `baseUrl` | API 服务地址，不带末尾 `/` | `https://example.com` |
 | `apiKey` | API 密钥 | 空 |
 | `endpoint` | 自定义请求路径，仅 `custom` 模式使用 | `/v1/images/generations` |
 | `model` | 使用的模型名称 | `gpt-image-2` |
-| `imageDetail` | Chat Completions 图像细节 | `high` |
-| `cooldownSeconds` | 每个用户绘图冷却时间，单位秒 | `180` |
+| `imageDetail` | Chat Completions / Responses 图像细节 | `high` |
+| `taskLockEnabled` | 绘图任务限制，开启后上一张完成前不接受下一张 | `true` |
 | `requestTimeoutSeconds` | 上游请求超时时间，单位秒 | `600` |
 | `moderation` | 审核级别 | `auto` |
 | `background` | 背景模式 | `auto` |
@@ -136,9 +143,23 @@ draw:
 
 说明：
 
-- `cooldownSeconds`、`requestTimeoutSeconds`、`n` 只在全局配置中设置
-- 配置一、二、三默认继承这三个值
+- `taskLockEnabled`、`requestTimeoutSeconds`、`n` 只在全局配置中设置
+- 配置一、二、三默认继承这些全局运行参数
+- `taskLockEnabled` 默认开启；关闭后不限制并发绘图请求
 - `size`、`quality`、`outputFormat`、`moderation`、`background` 可以在面板里选择“关闭”，关闭后请求里不会发送该字段
+
+尺寸预设：
+
+| 场景 | 尺寸 | 标注 |
+| --- | --- | --- |
+| 头像 / 主图 | `1024x1024` | 1K |
+| 横版封面 / PPT | `1536x1024` | 1.5K |
+| 竖版手机海报 | `1024x1536` | 1.5K |
+| 电脑壁纸 | `2560x1440` | 2K |
+| 高清横版海报 | `3840x2160` | 4K |
+| 高清竖版海报 | `2160x3840` | 4K |
+
+Web 面板仍保留 `size` 自定义输入，适合上游支持额外分辨率的模型。
 
 ## 接口模式说明
 
@@ -169,11 +190,26 @@ draw:
 - `data:image/...`
 - `base64://...`
 
-### 3. custom
+### 3. responses
+
+固定请求：
+
+```text
+/v1/responses
+```
+
+带图时会按 Responses API 风格发送 `input[].content`：
+
+- 文本：`input_text`
+- 图片：`input_image`
+
+这个模式会携带 `image_generation` 工具参数，并从流式聚合后的文本里提取图片链接。
+
+### 4. custom
 
 自定义请求路径。
 
-适合上游路由不是标准 `/v1/images/generations` 或 `/v1/chat/completions` 的情况。
+适合上游路由不是标准 `/v1/images/generations`、`/v1/chat/completions` 或 `/v1/responses` 的情况。
 
 ## Web 面板
 

@@ -10,21 +10,44 @@ const DATA_URL_REG = /^data:image\//i
 const BASE64_PREFIX = 'base64://'
 const IMAGE_GENERATIONS_ENDPOINT = '/v1/images/generations'
 const CHAT_COMPLETIONS_ENDPOINT = '/v1/chat/completions'
+const RESPONSES_ENDPOINT = '/v1/responses'
 const MARKDOWN_IMAGE_URL_REG = /!\[[^\]]*]\((https?:\/\/[^)\s]+|data:image\/[^)\s]+|base64:\/\/[^)\s]+)\)/gi
 const MARKDOWN_LINK_REG = /\[[^\]]*]\(([^)\s]+)\)/gi
 const TEXT_IMAGE_URL_REG = /(https?:\/\/[^\s"'<>)]*\.(?:png|jpe?g|webp|gif)(?:\?[^\s"'<>)]*)?|data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+|base64:\/\/[a-z0-9+/=]+)/gi
+const JSON_IMAGE_URL_REG = /"(?:url|image_url)"\s*:\s*"(https?:\/\/[^"\\]+|data:image\/[^"\\]+|base64:\/\/[^"\\]+)"/gi
+const JSON_IMAGE_BASE64_REG = /"(?:result|b64_json)"\s*:\s*"([a-z0-9+/=]{80,})"/gi
 
-export const DRAW_API_MODES = ['images', 'chatCompletions', 'custom'] as const
+export const DRAW_API_MODES = ['images', 'chatCompletions', 'responses', 'custom'] as const
 export type DrawApiMode = typeof DRAW_API_MODES[number]
 
 export const IMAGE_DETAIL_OPTIONS = ['auto', 'low', 'high', 'original'] as const
 export type ImageDetail = typeof IMAGE_DETAIL_OPTIONS[number]
 export const DISABLED_DRAW_OPTION_VALUE = '__disabled__'
 
+export interface DrawSizePreset {
+  /** 实际发送给上游的尺寸值 */
+  value: string
+  /** 适用场景 */
+  label: string
+  /** 分辨率与 K 标注 */
+  description: string
+}
+
+export const DRAW_SIZE_PRESETS: readonly DrawSizePreset[] = [
+  { value: '1024x1024', label: '头像 / 主图', description: '1024x1024（1K）' },
+  { value: '1536x1024', label: '横版封面 / PPT', description: '1536x1024（1.5K）' },
+  { value: '1024x1536', label: '竖版手机海报', description: '1024x1536（1.5K）' },
+  { value: '2560x1440', label: '电脑壁纸', description: '2560x1440（2K）' },
+  { value: '3840x2160', label: '高清横版海报', description: '3840x2160（4K）' },
+  { value: '2160x3840', label: '高清竖版海报', description: '2160x3840（4K）' },
+]
+
 export const DRAW_COMMAND_REG = /^#draw(?:\s+([\s\S]*))?$/i
+export const TRANSPARENT_DRAW_COMMAND_REG = /^#tpdraw(?:\s+([\s\S]*))?$/i
 export const DRAW_USAGE_TEXT = [
   '用法：',
   '#draw 提示词',
+  '#tpdraw 提示词（临时透明背景）',
   '#draw 提示词 + 附带/引用图片（图生图）',
 ].join('\n')
 
@@ -36,6 +59,7 @@ export interface DrawConfigSource {
   endpoint?: unknown
   model?: unknown
   imageDetail?: unknown
+  taskLockEnabled?: unknown
   cooldownSeconds?: unknown
   requestTimeoutSeconds?: unknown
   moderation?: unknown
@@ -54,6 +78,7 @@ export interface DrawConfig {
   endpoint: string
   model: string
   imageDetail: ImageDetail
+  taskLockEnabled: boolean
   cooldownSeconds: number
   requestTimeoutSeconds: number
   moderation?: string
@@ -72,6 +97,7 @@ export const DRAW_CONFIG_KEYS = [
   'endpoint',
   'model',
   'imageDetail',
+  'taskLockEnabled',
   'cooldownSeconds',
   'requestTimeoutSeconds',
   'moderation',
@@ -82,7 +108,7 @@ export const DRAW_CONFIG_KEYS = [
   'n',
 ] as const
 
-export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'name' | 'apiMode' | 'apiKey' | 'baseUrl' | 'endpoint' | 'model' | 'imageDetail' | 'cooldownSeconds' | 'requestTimeoutSeconds'>> & {
+export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'name' | 'apiMode' | 'apiKey' | 'baseUrl' | 'endpoint' | 'model' | 'imageDetail' | 'taskLockEnabled' | 'cooldownSeconds' | 'requestTimeoutSeconds'>> & {
   moderation: string
   background: string
   outputFormat: string
@@ -97,6 +123,7 @@ export const DEFAULT_DRAW_CONFIG: Readonly<Required<Pick<DrawConfig, 'name' | 'a
   endpoint: IMAGE_GENERATIONS_ENDPOINT,
   model: 'gpt-image-2',
   imageDetail: 'high',
+  taskLockEnabled: true,
   cooldownSeconds: 180,
   requestTimeoutSeconds: 600,
   moderation: 'auto',
@@ -128,6 +155,17 @@ function toPositiveInteger (value: unknown, fallback = 1): number {
   return fallback
 }
 
+function booleanOrDefault (value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false
+  }
+
+  return fallback
+}
+
 function normalizeEndpoint (value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
@@ -150,7 +188,9 @@ function optionalStringOrDefault (value: unknown, fallback: string): string | un
 }
 
 function getDefaultEndpoint (apiMode: DrawApiMode): string {
-  return apiMode === 'chatCompletions' ? CHAT_COMPLETIONS_ENDPOINT : IMAGE_GENERATIONS_ENDPOINT
+  if (apiMode === 'chatCompletions') return CHAT_COMPLETIONS_ENDPOINT
+  if (apiMode === 'responses') return RESPONSES_ENDPOINT
+  return IMAGE_GENERATIONS_ENDPOINT
 }
 
 function endpointOrDefault (source: DrawConfigSource, apiMode: DrawApiMode): string {
@@ -168,7 +208,7 @@ function endpointOrDefault (source: DrawConfigSource, apiMode: DrawApiMode): str
  * @returns 提取出的提示词；没有提示词时返回空字符串。
  */
 export function parseDrawPrompt (message: string): string {
-  return message.match(DRAW_COMMAND_REG)?.[1]?.trim() ?? ''
+  return (message.match(DRAW_COMMAND_REG) ?? message.match(TRANSPARENT_DRAW_COMMAND_REG))?.[1]?.trim() ?? ''
 }
 
 /**
@@ -188,6 +228,7 @@ export function toDrawConfig (source: DrawConfigSource): DrawConfig {
     endpoint: normalizeEndpoint(endpointOrDefault(source, apiMode)),
     model: stringOrDefault(source.model, DEFAULT_DRAW_CONFIG.model),
     imageDetail: enumOrDefault(source.imageDetail, IMAGE_DETAIL_OPTIONS, DEFAULT_DRAW_CONFIG.imageDetail),
+    taskLockEnabled: booleanOrDefault(source.taskLockEnabled, DEFAULT_DRAW_CONFIG.taskLockEnabled),
     cooldownSeconds: toPositiveInteger(source.cooldownSeconds, DEFAULT_DRAW_CONFIG.cooldownSeconds),
     requestTimeoutSeconds: toPositiveInteger(source.requestTimeoutSeconds, DEFAULT_DRAW_CONFIG.requestTimeoutSeconds),
     moderation: optionalStringOrDefault(source.moderation, DEFAULT_DRAW_CONFIG.moderation),
@@ -205,7 +246,8 @@ export function toDrawConfig (source: DrawConfigSource): DrawConfig {
  * 根据接口模式构建上游请求体。
  *
  * images/custom 模式使用 Images API 风格，chatCompletions 模式使用
- * messages[].content 的图像输入格式。
+ * messages[].content 的图像输入格式，responses 模式使用 input[].content
+ * 的 input_text/input_image 格式。
  *
  * @param input - 请求体构建参数。
  * @param input.prompt - 绘图提示词。
@@ -244,6 +286,27 @@ export function buildImageRequestPayload ({
     }
   }
 
+  if (usesResponsesApi(options)) {
+    return {
+      model: options.model,
+      stream: true,
+      tools: [buildResponsesImageGenerationTool(options)],
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: prompt },
+            ...images.map((image) => ({
+              type: 'input_image',
+              image_url: image,
+              detail: options.imageDetail,
+            })),
+          ],
+        },
+      ],
+    }
+  }
+
   const payload: Record<string, unknown> = {
     model: options.model,
     prompt,
@@ -262,10 +325,30 @@ export function buildImageRequestPayload ({
 }
 
 /**
+ * 构建 Responses API 的 image_generation 工具参数。
+ *
+ * @param options - 当前绘图配置。
+ * @returns Responses API image_generation 工具配置。
+ */
+function buildResponsesImageGenerationTool (options: DrawConfig): Record<string, unknown> {
+  const tool: Record<string, unknown> = {
+    type: 'image_generation',
+  }
+
+  if (options.moderation) tool.moderation = options.moderation
+  if (options.background) tool.background = options.background
+  if (options.outputFormat) tool.output_format = options.outputFormat
+  if (options.quality) tool.quality = options.quality
+  if (options.size) tool.size = options.size
+
+  return tool
+}
+
+/**
  * 从上游响应里提取可发送的图片结果。
  *
  * 兼容 Images API 的 data[].b64_json/data[].url，也兼容 Chat Completions
- * 文本里返回的 Markdown 图片、直链、data URL 和 base64://。
+ * 与 Responses 文本里返回的 Markdown 图片、直链、data URL 和 base64://。
  *
  * @param json - 上游响应 JSON。
  * @returns 可直接发送给 Karin 的图片结果列表。
@@ -288,8 +371,37 @@ export function extractOutputImages (json: any): string[] {
   const chatImages = Array.isArray(json?.choices)
     ? json.choices.flatMap((choice: any) => extractImagesFromText(choice?.message?.content))
     : []
+  const responseImages = extractImagesFromResponsesOutput(json?.output)
 
-  return uniqueStrings([...dataImages, ...chatImages])
+  return uniqueStrings([...dataImages, ...chatImages, ...responseImages])
+}
+
+/**
+ * 从 Responses API 的 output 结构中提取图片结果。
+ *
+ * @param output - Responses API 返回的 output 字段。
+ * @returns 可发送的图片 URL 或 base64 图片列表。
+ */
+function extractImagesFromResponsesOutput (output: unknown): string[] {
+  if (!Array.isArray(output)) return []
+
+  return output.flatMap((item: any) => {
+    const contentImages = Array.isArray(item?.content)
+      ? item.content.flatMap((content: any) => [
+        ...extractImagesFromText(content?.text),
+        ...extractImagesFromText(content?.content),
+      ])
+      : []
+
+    return [
+      ...contentImages,
+      ...extractImagesFromText(item?.text),
+      ...extractImagesFromText(item?.content),
+      typeof item?.result === 'string' && item.result ? `${BASE64_PREFIX}${item.result}` : '',
+      typeof item?.url === 'string' ? item.url : '',
+      typeof item?.b64_json === 'string' && item.b64_json ? `${BASE64_PREFIX}${item.b64_json}` : '',
+    ]
+  })
 }
 
 /**
@@ -306,7 +418,12 @@ function extractImagesFromText (content: unknown): string[] {
     .replaceAll(MARKDOWN_IMAGE_URL_REG, ' ')
     .replaceAll(MARKDOWN_LINK_REG, ' ')
   const textImages = [...plainText.matchAll(TEXT_IMAGE_URL_REG)].map(match => match[1])
-  return uniqueStrings([...markdownImages, ...textImages])
+  const jsonImages = [
+    ...[...content.matchAll(JSON_IMAGE_URL_REG)].map(match => match[1]),
+    ...[...content.matchAll(JSON_IMAGE_BASE64_REG)].map(match => `${BASE64_PREFIX}${match[1]}`),
+  ]
+
+  return uniqueStrings([...markdownImages, ...textImages, ...jsonImages])
 }
 
 function uniqueStrings (values: readonly string[]): string[] {
@@ -388,6 +505,16 @@ function usesChatCompletionsApi (config: DrawConfig): boolean {
 }
 
 /**
+ * 判断当前配置是否走 Responses API 风格请求。
+ *
+ * @param config - 当前绘图配置。
+ * @returns 是否使用 Responses API。
+ */
+function usesResponsesApi (config: DrawConfig): boolean {
+  return config.apiMode === 'responses' || config.endpoint === RESPONSES_ENDPOINT
+}
+
+/**
  * 递归查找上游返回的 error.message。
  *
  * 一些兼容服务会在 HTTP 200 的 SSE 事件里返回 error，
@@ -449,6 +576,66 @@ function findApiErrorMessageInText (text: string): string | undefined {
 }
 
 /**
+ * 创建短请求 ID，用于对照插件日志和上游日志。
+ *
+ * @returns 当前进程内足够区分请求的短 ID。
+ */
+function createRequestId (): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * 压缩日志文本，避免请求体日志过长。
+ *
+ * @param value - 原始文本。
+ * @param maxLength - 最大保留长度。
+ * @returns 压缩后的文本。
+ */
+function compactLogValue (value: string, maxLength = 240): string {
+  const compacted = value.replace(/\s+/g, ' ').trim()
+  return compacted.length > maxLength ? `${compacted.slice(0, maxLength)}...` : compacted
+}
+
+/**
+ * 脱敏请求体中可能过长或敏感的字段。
+ *
+ * @param value - 请求体中的任意值。
+ * @param key - 当前字段名。
+ * @returns 可安全打印到日志的值。
+ */
+function sanitizePayloadForLog (value: unknown, key = ''): unknown {
+  if (typeof value === 'string') {
+    if (value.startsWith('data:image/')) {
+      const mime = value.match(/^data:([^;]+)/)?.[1] ?? 'image/*'
+      return `<${mime};base64,${value.length} chars>`
+    }
+
+    if (value.startsWith(BASE64_PREFIX)) {
+      return `<base64://${value.length - BASE64_PREFIX.length} chars>`
+    }
+
+    if (key === 'prompt' || key === 'text') {
+      return compactLogValue(value)
+    }
+
+    return compactLogValue(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePayloadForLog(item, key))
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+    entryKey,
+    sanitizePayloadForLog(entryValue, entryKey),
+  ]))
+}
+
+/**
  * 执行绘图请求并返回图片结果。
  *
  * @param prompt - 绘图提示词。
@@ -458,38 +645,51 @@ function findApiErrorMessageInText (text: string): string | undefined {
  * @throws 当接口返回错误、非 JSON、超时或没有图片结果时抛出错误。
  */
 export async function generateImages (prompt: string, images: string[], config: DrawConfig): Promise<string[]> {
+  const requestId = createRequestId()
   const payload = buildImageRequestPayload({ prompt, images, options: config })
-  const response = usesChatCompletionsApi(config)
-    ? await postWithStream(
-      `${config.baseUrl}${config.endpoint}`,
-      config.apiKey,
-      payload,
-      config.requestTimeoutSeconds,
-    )
-    : await post(
-      `${config.baseUrl}${config.endpoint}`,
-      config.apiKey,
-      payload,
-      config.requestTimeoutSeconds,
-    )
+  const isStreamRequest = usesChatCompletionsApi(config) || usesResponsesApi(config)
+  const startedAt = Date.now()
 
-  const json = parseJsonResponse(response)
-  const apiErrorMessage = findApiErrorMessage(json) || findApiErrorMessageInText(response.text)
+  logger.debug(`[karin-plugin-drawImages] 请求开始 id=${requestId} mode=${config.apiMode} endpoint=${config.endpoint} model=${config.model}`)
+  logger.debug(`[karin-plugin-drawImages] 请求体 id=${requestId} payload=${JSON.stringify(sanitizePayloadForLog(payload))}`)
 
-  if (apiErrorMessage) {
-    throw new Error(apiErrorMessage)
+  try {
+    const response = isStreamRequest
+      ? await postWithStream(
+        `${config.baseUrl}${config.endpoint}`,
+        config.apiKey,
+        payload,
+        config.requestTimeoutSeconds,
+      )
+      : await post(
+        `${config.baseUrl}${config.endpoint}`,
+        config.apiKey,
+        payload,
+        config.requestTimeoutSeconds,
+      )
+
+    const json = parseJsonResponse(response)
+    const apiErrorMessage = findApiErrorMessage(json) || findApiErrorMessageInText(response.text)
+
+    if (apiErrorMessage) {
+      throw new Error(apiErrorMessage)
+    }
+
+    if (!response.ok) {
+      throw new Error(json?.error?.message || json?.message || `接口请求失败: ${response.status} ${response.statusText}`)
+    }
+
+    const output = extractOutputImages(json)
+    if (output.length === 0) {
+      // 只记录响应摘要，避免日志里泄露完整响应或过长内容。
+      logger.warn(`[karin-plugin-drawImages] 接口返回成功但未解析到图片，${summarizeImageApiResponse(response)}`)
+      throw new Error('接口返回成功，但没有拿到图片结果')
+    }
+
+    logger.debug(`[karin-plugin-drawImages] 请求完成 id=${requestId} status=${response.status} output=${output.length} duration=${Date.now() - startedAt}ms`)
+    return output
+  } catch (error) {
+    logger.debug(`[karin-plugin-drawImages] 请求失败 id=${requestId} duration=${Date.now() - startedAt}ms message=${error instanceof Error ? error.message : String(error)}`)
+    throw error
   }
-
-  if (!response.ok) {
-    throw new Error(json?.error?.message || json?.message || `接口请求失败: ${response.status} ${response.statusText}`)
-  }
-
-  const output = extractOutputImages(json)
-  if (output.length === 0) {
-    // 只记录响应摘要，避免日志里泄露完整响应或过长内容。
-    logger.warn(`[karin-plugin-drawImages] 接口返回成功但未解析到图片，${summarizeImageApiResponse(response)}`)
-    throw new Error('接口返回成功，但没有拿到图片结果')
-  }
-
-  return output
 }

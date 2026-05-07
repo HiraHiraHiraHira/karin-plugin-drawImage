@@ -5,6 +5,7 @@ import { getDrawConfig } from '@/utils/config'
 import {
   DRAW_COMMAND_REG,
   DRAW_USAGE_TEXT,
+  TRANSPARENT_DRAW_COMMAND_REG,
   generateImages,
   parseDrawPrompt,
   resolveApiImageInputs,
@@ -24,8 +25,6 @@ interface DrawEvent {
   bot?: {
     getMsg: (contact: Contact, messageId: string) => Promise<{ elements: Elements[] }>
   }
-  /** 触发绘图的用户 ID，用于冷却隔离 */
-  userId?: string
   /** 回复消息 */
   reply: (message: SendMessage) => unknown
 }
@@ -37,44 +36,45 @@ interface DrawDeps {
   resolveImages: (images: readonly string[]) => Promise<string[]>
   /** 调用绘图接口 */
   generate: (prompt: string, images: string[], config: DrawConfig) => Promise<string[]>
+  /** 对单次请求配置做临时调整，不会写回配置文件 */
+  transformConfig: (config: DrawConfig) => DrawConfig
   /** 将上游图片结果映射为 Karin 可发送内容 */
   mapOutput: (image: string) => string | Elements
-  /** 当前时间函数，方便测试冷却逻辑 */
-  now: () => number
-  /** 冷却存储 */
-  cooldownStore: Map<string, number>
+  /** 当前绘图任务状态 */
+  taskState: DrawTaskState
 }
 
-const drawCooldownStore = new Map<string, number>()
+interface DrawTaskState {
+  /** 是否已有绘图任务正在执行 */
+  running: boolean
+}
+
+const DRAW_TASK_STATE_KEY = Symbol.for('karin-plugin-drawImages.taskState')
+
+/**
+ * 获取跨热重载共享的绘图任务状态。
+ *
+ * Karin 开发/热重载时可能残留多份命令 handler，使用 globalThis
+ * 可以让这些 handler 共用同一份任务状态，避免并发请求上游。
+ *
+ * @returns 当前进程共享的绘图任务状态。
+ */
+function getGlobalTaskState (): DrawTaskState {
+  const globalStore = globalThis as typeof globalThis & {
+    [DRAW_TASK_STATE_KEY]?: DrawTaskState
+  }
+
+  globalStore[DRAW_TASK_STATE_KEY] ??= { running: false }
+  return globalStore[DRAW_TASK_STATE_KEY]
+}
 
 const defaultDeps: DrawDeps = {
   getConfig: () => getDrawConfig(),
   resolveImages: async (images) => resolveApiImageInputs(images),
   generate: async (prompt, images, config) => generateImages(prompt, images, config),
+  transformConfig: (config) => config,
   mapOutput: (image) => image,
-  now: () => Date.now(),
-  cooldownStore: drawCooldownStore,
-}
-
-/**
- * 获取用户级冷却键。
- *
- * @param e - 绘图事件。
- * @returns 用户 ID；不存在时返回 undefined。
- */
-function getCooldownKey (e: DrawEvent): string | undefined {
-  return e.userId?.trim() || undefined
-}
-
-/**
- * 计算剩余冷却秒数。
- *
- * @param expiresAt - 冷却结束时间戳，单位毫秒。
- * @param now - 当前时间戳，单位毫秒。
- * @returns 向上取整后的剩余秒数。
- */
-function getRemainingCooldownSeconds (expiresAt: number, now: number): number {
-  return Math.max(0, Math.ceil((expiresAt - now) / 1000))
+  taskState: getGlobalTaskState(),
 }
 
 /**
@@ -101,6 +101,19 @@ function getImageFilesFromElements (elements: readonly Elements[]): string[] {
  */
 function uniqueImages (images: readonly string[]): string[] {
   return [...new Set(images.filter(Boolean))]
+}
+
+/**
+ * 创建临时透明背景绘图配置。
+ *
+ * @param config - 当前生效的绘图配置。
+ * @returns background 被临时覆盖为 transparent 的新配置。
+ */
+function withTransparentBackground (config: DrawConfig): DrawConfig {
+  return {
+    ...config,
+    background: 'transparent',
+  }
 }
 
 /**
@@ -144,25 +157,21 @@ export async function handleDrawMessage (
     return true
   }
 
-  const config = runtime.getConfig()
+  const config = runtime.transformConfig(runtime.getConfig())
   if (!config.apiKey) {
     await e.reply(`未配置绘图密钥，请填写 ${dir.configFile}`)
     return true
   }
 
-  const cooldownKey = getCooldownKey(e)
-  const now = runtime.now()
-  if (cooldownKey) {
-    const expiresAt = runtime.cooldownStore.get(cooldownKey) ?? 0
-    if (expiresAt > now) {
-      const remaining = getRemainingCooldownSeconds(expiresAt, now)
-      await e.reply(`绘图冷却中，请 ${remaining} 秒后再试`)
-      return true
-    }
-
-    runtime.cooldownStore.set(cooldownKey, now + (config.cooldownSeconds * 1000))
+  // 任务锁只负责限制同时请求数量，不按用户或固定秒数计算冷却。
+  if (config.taskLockEnabled && runtime.taskState.running) {
+    await e.reply('已有绘图任务正在执行，请等待上一张图片完成后再试')
+    return true
   }
 
+  if (config.taskLockEnabled) {
+    runtime.taskState.running = true
+  }
   try {
     const inputImages = await runtime.resolveImages(await getDrawInputImages(e))
     const generatedImages = await runtime.generate(prompt, inputImages, config)
@@ -170,6 +179,10 @@ export async function handleDrawMessage (
   } catch (error) {
     logger.error('[karin-plugin-drawImages] 绘图失败', error)
     await e.reply(`绘图失败: ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    if (config.taskLockEnabled) {
+      runtime.taskState.running = false
+    }
   }
 
   return true
@@ -181,6 +194,18 @@ export const draw = karin.command(DRAW_COMMAND_REG, async (e) => {
   })
 }, {
   name: 'AI 绘图',
+  permission: 'all',
+  log: true,
+  priority: 9999,
+})
+
+export const transparentDraw = karin.command(TRANSPARENT_DRAW_COMMAND_REG, async (e) => {
+  return handleDrawMessage(e, {
+    transformConfig: withTransparentBackground,
+    mapOutput: (image) => segment.image(image),
+  })
+}, {
+  name: 'AI 透明背景绘图',
   permission: 'all',
   log: true,
   priority: 9999,

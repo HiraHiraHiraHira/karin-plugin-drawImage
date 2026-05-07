@@ -158,6 +158,17 @@ function mergeGlobalConfig (global: DrawConfig, profile: DrawConfigSource): Draw
 }
 
 /**
+ * 移除已经废弃、但仍可读取兼容的配置字段。
+ *
+ * @param source - 原始绘图配置。
+ * @returns 去掉废弃字段后的绘图配置。
+ */
+function omitDeprecatedConfigKeys (source: DrawConfigSource): DrawConfigSource {
+  const { cooldownSeconds: _cooldownSeconds, ...rest } = source
+  return rest
+}
+
+/**
  * 归一化 draw 配置节点。
  *
  * @param draw - draw 配置节点。
@@ -252,6 +263,22 @@ export function getDrawConfig (filePath = dir.configFile): DrawConfig {
 }
 
 /**
+ * 切换当前启用的绘图配置档。
+ *
+ * @param profileId - 目标配置档 ID。
+ * @param filePath - 配置文件路径，默认使用运行时 config.yaml。
+ * @returns 切换后的完整绘图设置。
+ */
+export async function switchDrawProfile (profileId: DrawProfileId, filePath = dir.configFile): Promise<DrawSettings> {
+  const settings = getDrawSettings(filePath)
+  return saveDrawSettings({
+    activeProfile: profileId,
+    global: settings.rawGlobal,
+    profiles: settings.rawProfiles,
+  }, filePath)
+}
+
+/**
  * 保存当前启用配置档的部分配置。
  *
  * @param input - 要覆盖到当前配置档的配置。
@@ -267,16 +294,17 @@ export async function saveDrawConfig (input: DrawConfigSource, filePath = dir.co
     ...rawProfile,
     ...input,
   }
+  const globalSource = hasProfiles(current.draw) ? current.draw?.global ?? settings.rawGlobal : settings.rawGlobal
   const next: PluginConfig = {
     ...current,
     draw: {
       activeProfile,
-      global: hasProfiles(current.draw) ? current.draw?.global ?? settings.global : settings.global,
+      global: omitDeprecatedConfigKeys(globalSource),
       profiles: {
-        profile1: getProfileSource(current.draw, 'profile1'),
-        profile2: getProfileSource(current.draw, 'profile2'),
-        profile3: getProfileSource(current.draw, 'profile3'),
-        [activeProfile]: nextProfile,
+        profile1: omitDeprecatedConfigKeys(getProfileSource(current.draw, 'profile1')),
+        profile2: omitDeprecatedConfigKeys(getProfileSource(current.draw, 'profile2')),
+        profile3: omitDeprecatedConfigKeys(getProfileSource(current.draw, 'profile3')),
+        [activeProfile]: omitDeprecatedConfigKeys(nextProfile),
       },
     },
   }
@@ -304,16 +332,16 @@ export async function saveDrawSettings (input: DrawProfilesConfigSource, filePat
   }
   const profiles = Object.fromEntries(DRAW_PROFILE_IDS.map((profileId) => [
     profileId,
-    {
+    omitDeprecatedConfigKeys({
       ...getProfileSource(current.draw, profileId),
       ...(inputProfiles[profileId] ?? {}),
-    },
+    }),
   ])) as Partial<Record<DrawProfileId, DrawConfigSource>>
   const next: PluginConfig = {
     ...current,
     draw: {
       activeProfile,
-      global,
+      global: omitDeprecatedConfigKeys(global),
       profiles,
     },
   }
